@@ -3,7 +3,7 @@
 Responsibilities:
 - Sign every request (including the bare token request) per Tuya v2 rules.
 - Cache the access token in-memory until ~5 min before expiry.
-- Retry transient failures (HTTP 5xx, 429) with exponential backoff.
+- Retry transient failures (HTTP 5xx, 429) with exponential backoff on token fetch.
 
 Not responsible for:
 - Persisting the token across process restarts.
@@ -17,6 +17,7 @@ import time
 import uuid
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from tenacity import (
@@ -174,7 +175,7 @@ class TuyaClient:
         the endpoint returns no result.
         """
         access_token = self._get_access_token()
-        path = self.DPS_PATH.format(device_id=device_id)
+        path = self.DPS_PATH.format(device_id=quote(device_id, safe=""))
         payload = self._signed_request(
             method="GET",
             path=path,
