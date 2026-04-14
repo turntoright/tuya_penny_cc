@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock
 
 import httpx
@@ -43,11 +43,11 @@ def test_default_mode_writes_yesterday():
     start_ms = int(
         datetime(yesterday.year, yesterday.month, yesterday.day, tzinfo=UTC).timestamp() * 1000
     )
-    end_ms = int(
-        datetime(
-            yesterday.year, yesterday.month, yesterday.day, 23, 59, 59, tzinfo=UTC
-        ).timestamp() * 1000
+    next_day = (
+        datetime(yesterday.year, yesterday.month, yesterday.day, tzinfo=UTC)
+        + timedelta(days=1)
     )
+    end_ms = int(next_day.timestamp() * 1000) - 1
     fake_tuya.get_energy_stats.assert_called_once_with("d1", "day", start_ms, end_ms)
 
 

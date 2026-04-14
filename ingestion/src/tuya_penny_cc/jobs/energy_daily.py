@@ -76,9 +76,8 @@ def run(
         category = device["category"]
         for d in windows:
             start_ms = int(datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp() * 1000)
-            end_ms = int(
-                datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=UTC).timestamp() * 1000
-            )
+            next_day = datetime(d.year, d.month, d.day, tzinfo=UTC) + timedelta(days=1)
+            end_ms = int(next_day.timestamp() * 1000) - 1
             stats = tuya.get_energy_stats(device_id, "day", start_ms, end_ms)
             rows.append(
                 {
