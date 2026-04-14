@@ -11,7 +11,7 @@ from google.cloud import bigquery
 
 from tuya_penny_cc.bq.writer import BigQueryWriter
 from tuya_penny_cc.config import Settings
-from tuya_penny_cc.jobs import device_sync
+from tuya_penny_cc.jobs import device_sync, energy_realtime
 from tuya_penny_cc.tuya.client import TuyaClient
 
 logger = logging.getLogger("tuya_penny_cc")
@@ -19,6 +19,7 @@ logger = logging.getLogger("tuya_penny_cc")
 
 class Task(StrEnum):
     device_sync = "device_sync"
+    energy_realtime = "energy_realtime"
 
 
 def app() -> None:
@@ -50,10 +51,13 @@ def _main(
         user_uid=settings.tuya_user_uid,
     )
     try:
-        if task is Task.device_sync:
-            written = device_sync.run(tuya=tuya, writer=writer, run_id=run_id)
-        else:
-            raise typer.BadParameter(f"Unknown task: {task}")
+        match task:
+            case Task.device_sync:
+                written = device_sync.run(tuya=tuya, writer=writer, run_id=run_id)
+            case Task.energy_realtime:
+                written = energy_realtime.run(tuya=tuya, writer=writer, run_id=run_id)
+            case _:
+                raise typer.BadParameter(f"Unknown task: {task}")
         logger.info("task=%s wrote %d rows", task.value, written)
     finally:
         tuya.close()
