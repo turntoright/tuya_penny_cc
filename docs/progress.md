@@ -57,7 +57,7 @@ BigQuery append-only 原始表（`tuya_raw` dataset）：
 | 计划 | 描述 | 状态 |
 |---|---|---|
 | **A — Ingestion MVP** | device_sync 作业、BQ 写入器、CLI 入口、21 个单元测试 | ✅ 已完成 |
-| **B — 能耗作业** | energy_realtime、hourly、daily、历史回填 | ⬜ 未开始 |
+| **B — 能耗作业** | energy_realtime、hourly、daily、历史回填 | 🔄 进行中 |
 | **C — dbt 项目** | staging、快照（SCD2）、marts、拓扑层 | ⬜ 未开始 |
 | **D — 云部署** | Cloud Run、Scheduler、Secret Manager、CI/CD | ⬜ 未开始 |
 
@@ -156,22 +156,69 @@ BigQuery append-only 原始表（`tuya_raw` dataset）：
 
 ---
 
+## Plan B — 能耗作业完成情况
+
+| 作业 | 状态 |
+|---|---|
+| `energy_realtime` | ✅ 已完成（2026-04-14） |
+| `energy_hourly` | ⬜ 未开始 |
+| `energy_daily` | ⬜ 未开始 |
+| 历史回填（backfill） | ⬜ 未开始 |
+
+### B.1 — energy_realtime 完成情况
+
+#### 实施方式
+
+采用与 Plan A 相同的 subagent 驱动开发 + 两阶段 review（spec 符合性 + 代码质量）。
+
+#### 新增组件
+
+| 文件 | 内容 |
+|---|---|
+| `tuya/client.py` | 新增 `get_device_dps(device_id)` 方法，调用 `/v1.0/iot-03/devices/{id}/status` |
+| `bq/schemas.py` | 新增 `RAW_ENERGY_REALTIME_SCHEMA`（含 `category` 列） |
+| `jobs/energy_realtime.py` | 能耗实时作业：过滤在线设备 → 拉取 DP → 写入 BQ |
+| `main.py` | `Task.energy_realtime` 加入 StrEnum，`match/case` 分发 |
+
+#### 关键设计决策
+
+- **只采集在线设备**：`isOnline == False` 的设备静默跳过，不写入任何行
+- **`payload` 存 DP 列表**（`list[dict]`），不做 `json.dumps()`，与 device_sync 一致
+- **`source_endpoint` 按设备展开**：每行记录实际调用的完整路径（含 device_id）
+- **`DPS_PATH` 单一定义**：`energy_realtime.py` 直接引用 `TuyaClient.DPS_PATH`，避免路径常量重复
+- **`category` 字段强制存在**：使用 `device["category"]`（非 `.get()`），缺失时快速失败
+
+#### 测试结果
+
+**27 个单元测试全部通过**，ruff 无告警。新增 6 个测试（2 个 client + 4 个 job）。
+
+#### 提交历史
+
+| Commit | 内容 |
+|---|---|
+| `b2ac063` | feat(tuya): add get_device_dps() to TuyaClient |
+| `cc622d6` | fix(tuya): narrow retry docstring; url-encode device_id |
+| `801cf5a` | feat(bq): add RAW_ENERGY_REALTIME_SCHEMA |
+| `a0dbc1b` | feat(jobs): add energy_realtime job |
+| `932f4c8` | fix(jobs): import DPS_PATH from client; harden category field |
+| `4bcd93d` | feat(cli): wire energy_realtime task into CLI dispatcher |
+| `658accb` | fix(cli): replace dead case fallback with assert_never |
+
+---
+
 ## 下一步计划
 
-### Plan B — 能耗作业
-
-需要实现三类能耗数据采集：
+### Plan B 剩余 — energy_hourly / energy_daily / backfill
 
 | 作业 | 端点（待确认） | 采集频率 |
 |---|---|---|
-| `energy_realtime` | DP 实时读数（cur_power, add_ele 等） | 每天 1–6 次 |
-| `energy_hourly` | Tuya 小时聚合 | 每天 1 次 |
-| `energy_daily` | Tuya 日聚合 | 每天 1 次 |
+| `energy_hourly` | Tuya 小时聚合（端点未知，需 smoke test） | 每天 1 次 |
+| `energy_daily` | Tuya 日聚合（端点未知，需 smoke test） | 每天 1 次 |
+| `backfill` | 同上，支持日期范围参数 | 按需 |
 
 注意事项：
-- 两类设备（relay switch `znjdq` vs power meter `dlq`）的 DP 字段不同，需分别处理
-- 历史回填作业（backfill）需支持日期范围参数
-- 端点选择需通过实际 API 测试验证（参考 v2.0 经验）
+- 两类设备（`znjdq` vs `dlq`）的 DP 字段不同，需分别处理
+- 端点选择需通过实际 API 测试验证（参考 v2.0 端点经验）
 
 ### Plan C — dbt 项目
 
