@@ -162,6 +162,27 @@ class TuyaClient:
                 break
             page_no += 1
 
+    # ---- device DPs -------------------------------------------------------------
+
+    DPS_PATH = "/v1.0/iot-03/devices/{device_id}/status"
+
+    def get_device_dps(self, device_id: str) -> list[dict]:
+        """Return current DP values for a single device.
+
+        Calls /v1.0/iot-03/devices/{device_id}/status and returns the
+        ``result`` list of {code, value} dicts. Returns an empty list if
+        the endpoint returns no result.
+        """
+        access_token = self._get_access_token()
+        path = self.DPS_PATH.format(device_id=device_id)
+        payload = self._signed_request(
+            method="GET",
+            path=path,
+            query=None,
+            access_token=access_token,
+        )
+        return payload.get("result") or []
+
     # ---- lifecycle -------------------------------------------------------
 
     def close(self) -> None:

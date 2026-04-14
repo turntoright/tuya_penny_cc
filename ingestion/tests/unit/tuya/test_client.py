@@ -156,3 +156,40 @@ def test_list_devices_paginates(mock_router):
     devices = list(c.list_devices(page_size=2))
     assert [d["id"] for d in devices] == ["d1", "d2", "d3"]
     assert route.call_count == 2
+
+
+def test_get_device_dps_returns_dp_list(mock_router):
+    mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(
+        return_value=_token_response()
+    )
+    mock_router.get("/v1.0/iot-03/devices/d1/status").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "result": [
+                    {"code": "switch_1", "value": True},
+                    {"code": "cur_power", "value": 120},
+                ],
+                "success": True,
+                "t": 1700000000000,
+            },
+        )
+    )
+    c = make_client()
+    dps = c.get_device_dps("d1")
+    assert dps == [{"code": "switch_1", "value": True}, {"code": "cur_power", "value": 120}]
+
+
+def test_get_device_dps_raises_on_api_error(mock_router):
+    mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(
+        return_value=_token_response()
+    )
+    mock_router.get("/v1.0/iot-03/devices/d1/status").mock(
+        return_value=httpx.Response(
+            200,
+            json={"success": False, "code": 40000001, "msg": "not found"},
+        )
+    )
+    c = make_client()
+    with pytest.raises(httpx.HTTPStatusError):
+        c.get_device_dps("d1")
