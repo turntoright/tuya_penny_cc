@@ -33,9 +33,15 @@ def app() -> None:
 def _main(
     task: Task = typer.Option(..., "--task", help="Which ingestion task to run."),  # noqa: B008
     log_level: str = typer.Option("INFO", "--log-level"),  # noqa: B008
-    date_str: str | None = typer.Option(None, "--date", help="Backfill single date YYYY-MM-DD."),  # noqa: B008
-    start_date_str: str | None = typer.Option(None, "--start-date", help="Range start YYYY-MM-DD."),  # noqa: B008
-    end_date_str: str | None = typer.Option(None, "--end-date", help="Range end YYYY-MM-DD."),  # noqa: B008
+    date_str: str | None = typer.Option(  # noqa: B008
+        None, "--date", help="Backfill single date YYYY-MM-DD."
+    ),
+    start_date_str: str | None = typer.Option(  # noqa: B008
+        None, "--start-date", help="Range start YYYY-MM-DD."
+    ),
+    end_date_str: str | None = typer.Option(  # noqa: B008
+        None, "--end-date", help="Range end YYYY-MM-DD."
+    ),
 ) -> None:
     parsed_date = _date.fromisoformat(date_str) if date_str else None
     parsed_start = _date.fromisoformat(start_date_str) if start_date_str else None
