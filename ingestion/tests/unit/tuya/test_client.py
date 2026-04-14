@@ -92,3 +92,77 @@ def test_token_is_cached_until_expiry(mock_router):
     b = c._get_access_token()
     assert a == b == "tok"
     assert route.call_count == 1
+
+
+def _token_response():
+    return httpx.Response(
+        200,
+        json={
+            "result": {
+                "access_token": "tok",
+                "refresh_token": "rt",
+                "expire_time": 7200,
+                "uid": "uid",
+            },
+            "success": True,
+            "t": 1700000000000,
+        },
+    )
+
+
+def test_list_devices_single_page(mock_router):
+    mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(return_value=_token_response())
+    mock_router.get("/v1.3/iot-03/devices").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "result": {
+                    "list": [
+                        {"id": "d1", "name": "Switch A"},
+                        {"id": "d2", "name": "Switch B"},
+                    ],
+                    "has_more": False,
+                    "last_row_key": "",
+                },
+                "success": True,
+                "t": 1700000000000,
+            },
+        )
+    )
+    c = make_client()
+    devices = list(c.list_devices(page_size=20))
+    assert [d["id"] for d in devices] == ["d1", "d2"]
+
+
+def test_list_devices_paginates(mock_router):
+    mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(return_value=_token_response())
+    page1 = httpx.Response(
+        200,
+        json={
+            "result": {
+                "list": [{"id": "d1"}],
+                "has_more": True,
+                "last_row_key": "rk1",
+            },
+            "success": True,
+            "t": 1700000000000,
+        },
+    )
+    page2 = httpx.Response(
+        200,
+        json={
+            "result": {
+                "list": [{"id": "d2"}, {"id": "d3"}],
+                "has_more": False,
+                "last_row_key": "",
+            },
+            "success": True,
+            "t": 1700000000000,
+        },
+    )
+    route = mock_router.get("/v1.3/iot-03/devices")
+    route.side_effect = [page1, page2]
+    c = make_client()
+    devices = list(c.list_devices(page_size=20))
+    assert [d["id"] for d in devices] == ["d1", "d2", "d3"]
+    assert route.call_count == 2

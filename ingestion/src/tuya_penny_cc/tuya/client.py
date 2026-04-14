@@ -133,6 +133,34 @@ class TuyaClient:
             )
         return body_json
 
+    # ---- devices ---------------------------------------------------------
+
+    DEVICES_PATH = "/v1.3/iot-03/devices"
+
+    def list_devices(self, *, page_size: int = 100):
+        """Yield device dicts across all pages."""
+        access_token = self._get_access_token()
+        last_row_key = ""
+        while True:
+            query: dict[str, str] = {
+                "page_size": str(page_size),
+            }
+            if last_row_key:
+                query["last_row_key"] = last_row_key
+            payload = self._signed_request(
+                method="GET",
+                path=self.DEVICES_PATH,
+                query=query,
+                access_token=access_token,
+            )
+            result = payload["result"]
+            yield from result.get("list", [])
+            if not result.get("has_more"):
+                break
+            last_row_key = result.get("last_row_key", "")
+            if not last_row_key:
+                break
+
     # ---- lifecycle -------------------------------------------------------
 
     def close(self) -> None:
