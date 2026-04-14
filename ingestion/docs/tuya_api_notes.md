@@ -112,7 +112,47 @@ SELECT
 FROM `<project>.<dataset>.raw_devices`
 ```
 
-## 4. Devices in this project (snapshot 2026-04-14)
+## 4. Energy statistics endpoint (best-guess — needs smoke test)
+
+Endpoint used by `energy_hourly` and `energy_daily` jobs:
+
+```
+GET /v1.0/iot-03/devices/{device_id}/statistics-month
+```
+
+Query parameters sent:
+
+| Param | Value |
+|---|---|
+| `type` | `"hour"` or `"day"` |
+| `start_time` | Window start as Unix milliseconds (inclusive) |
+| `end_time` | Window end as Unix milliseconds (exclusive upper bound − 1) |
+
+**Status:** This path and parameter names are inferred from Tuya OpenAPI conventions. They have **not yet been confirmed against a live response**. On first smoke test, verify:
+- The path returns `success: true` (not `28841106 No permissions`)
+- The `result` field structure (list of dicts? what keys?)
+- Whether `type`, `start_time`, `end_time` are the correct param names
+
+Update this section after the first successful smoke run.
+
+### `end_ms` formula
+
+Both jobs use an exclusive upper bound to avoid missing the final millisecond:
+
+```python
+# hourly: end of the hour
+end_ms = int((window + timedelta(hours=1)).timestamp() * 1000) - 1
+
+# daily: end of the day
+next_day = datetime(d.year, d.month, d.day, tzinfo=UTC) + timedelta(days=1)
+end_ms = int(next_day.timestamp() * 1000) - 1
+```
+
+Do **not** use `23:59:59` literals — that misses the last 999 ms of the day.
+
+---
+
+## 5. Devices in this project (snapshot 2026-04-14)
 
 | Category code | Product | Count | Online |
 |---|---|---|---|
