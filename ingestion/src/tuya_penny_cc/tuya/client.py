@@ -60,7 +60,12 @@ class TuyaClient:
 
     def _get_access_token(self) -> str:
         now = self._clock()
-        if self._token is None or self._token.expires_at_epoch - now < _TOKEN_REFRESH_LEEWAY_SECONDS:
+        if self._token is not None:
+            time_until_expiry = self._token.expires_at_epoch - now
+            should_refresh = time_until_expiry < _TOKEN_REFRESH_LEEWAY_SECONDS
+        else:
+            should_refresh = True
+        if should_refresh:
             self._token = self._fetch_token()
         return self._token.access_token
 
