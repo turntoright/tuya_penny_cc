@@ -112,18 +112,14 @@ def _token_response():
 
 def test_list_devices_single_page(mock_router):
     mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(return_value=_token_response())
-    mock_router.get("/v1.3/iot-03/devices").mock(
+    mock_router.get("/v2.0/cloud/thing/device").mock(
         return_value=httpx.Response(
             200,
             json={
-                "result": {
-                    "list": [
-                        {"id": "d1", "name": "Switch A"},
-                        {"id": "d2", "name": "Switch B"},
-                    ],
-                    "has_more": False,
-                    "last_row_key": "",
-                },
+                "result": [
+                    {"id": "d1", "name": "Switch A"},
+                    {"id": "d2", "name": "Switch B"},
+                ],
                 "success": True,
                 "t": 1700000000000,
             },
@@ -136,33 +132,27 @@ def test_list_devices_single_page(mock_router):
 
 def test_list_devices_paginates(mock_router):
     mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(return_value=_token_response())
+    # page 1: full page of 2 → more pages expected
     page1 = httpx.Response(
         200,
         json={
-            "result": {
-                "list": [{"id": "d1"}],
-                "has_more": True,
-                "last_row_key": "rk1",
-            },
+            "result": [{"id": "d1"}, {"id": "d2"}],
             "success": True,
             "t": 1700000000000,
         },
     )
+    # page 2: partial page (1 item < page_size=2) → last page
     page2 = httpx.Response(
         200,
         json={
-            "result": {
-                "list": [{"id": "d2"}, {"id": "d3"}],
-                "has_more": False,
-                "last_row_key": "",
-            },
+            "result": [{"id": "d3"}],
             "success": True,
             "t": 1700000000000,
         },
     )
-    route = mock_router.get("/v1.3/iot-03/devices")
+    route = mock_router.get("/v2.0/cloud/thing/device")
     route.side_effect = [page1, page2]
     c = make_client()
-    devices = list(c.list_devices(page_size=20))
+    devices = list(c.list_devices(page_size=2))
     assert [d["id"] for d in devices] == ["d1", "d2", "d3"]
     assert route.call_count == 2

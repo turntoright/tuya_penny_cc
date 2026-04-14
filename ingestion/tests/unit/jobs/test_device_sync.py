@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -37,8 +36,8 @@ def test_run_writes_one_row_per_device_with_lineage():
     assert first["ingest_run_id"] == "run-uuid-1"
     assert first["ingest_ts"] == "2026-04-14T12:00:00+00:00"
     assert first["ingest_date"] == "2026-04-14"
-    assert first["source_endpoint"] == "/v1.3/iot-03/devices"
-    assert json.loads(first["payload"])["name"] == "Switch A"
+    assert first["source_endpoint"] == "/v2.0/cloud/thing/device"
+    assert first["payload"]["name"] == "Switch A"
 
 
 def test_run_with_no_devices_writes_nothing_but_returns_zero():

@@ -135,31 +135,32 @@ class TuyaClient:
 
     # ---- devices ---------------------------------------------------------
 
-    DEVICES_PATH = "/v1.3/iot-03/devices"
+    DEVICES_PATH = "/v2.0/cloud/thing/device"
+    # v2 endpoint caps page_size at 20; larger values return an error.
+    _DEVICES_MAX_PAGE_SIZE = 20
 
-    def list_devices(self, *, page_size: int = 100):
-        """Yield device dicts across all pages."""
+    def list_devices(self, *, page_size: int = 20):
+        """Yield device dicts across all pages.
+
+        Uses /v2.0/cloud/thing/device which returns a flat list under ``result``.
+        Pagination is inferred: when the page contains fewer items than
+        ``page_size`` there are no more pages.
+        """
+        page_size = min(page_size, self._DEVICES_MAX_PAGE_SIZE)
         access_token = self._get_access_token()
-        last_row_key = ""
+        page_no = 1
         while True:
-            query: dict[str, str] = {
-                "page_size": str(page_size),
-            }
-            if last_row_key:
-                query["last_row_key"] = last_row_key
             payload = self._signed_request(
                 method="GET",
                 path=self.DEVICES_PATH,
-                query=query,
+                query={"page_size": str(page_size), "page_no": str(page_no)},
                 access_token=access_token,
             )
-            result = payload["result"]
-            yield from result.get("list", [])
-            if not result.get("has_more"):
+            devices: list = payload.get("result") or []
+            yield from devices
+            if len(devices) < page_size:
                 break
-            last_row_key = result.get("last_row_key", "")
-            if not last_row_key:
-                break
+            page_no += 1
 
     # ---- lifecycle -------------------------------------------------------
 

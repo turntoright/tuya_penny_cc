@@ -6,14 +6,13 @@ row with lineage columns, and batch-loads to `raw_devices`.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from tuya_penny_cc.bq.schemas import RAW_DEVICES_SCHEMA
 
-SOURCE_ENDPOINT = "/v1.3/iot-03/devices"
+SOURCE_ENDPOINT = "/v2.0/cloud/thing/device"
 TABLE = "raw_devices"
 
 
@@ -45,7 +44,7 @@ def run(
                 "ingest_ts": ts_iso,
                 "ingest_run_id": run_id,
                 "source_endpoint": SOURCE_ENDPOINT,
-                "payload": json.dumps(device, ensure_ascii=False),
+                "payload": device,
                 "device_id": device["id"],
                 "ingest_date": date_iso,
             }
