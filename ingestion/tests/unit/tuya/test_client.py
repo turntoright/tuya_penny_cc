@@ -193,3 +193,52 @@ def test_get_device_dps_raises_on_api_error(mock_router):
     c = make_client()
     with pytest.raises(httpx.HTTPStatusError):
         c.get_device_dps("d1")
+
+
+def test_get_energy_stats_returns_list(mock_router):
+    mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(
+        return_value=_token_response()
+    )
+    mock_router.get("/v1.0/iot-03/devices/d1/statistics-month").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "result": [{"time": 1700000000000, "value": "1.23"}],
+                "success": True,
+                "t": 1700000000000,
+            },
+        )
+    )
+    c = make_client()
+    stats = c.get_energy_stats("d1", "hour", 1700000000000, 1700003599000)
+    assert stats == [{"time": 1700000000000, "value": "1.23"}]
+
+
+def test_get_energy_stats_raises_on_api_error(mock_router):
+    mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(
+        return_value=_token_response()
+    )
+    mock_router.get("/v1.0/iot-03/devices/d1/statistics-month").mock(
+        return_value=httpx.Response(
+            200,
+            json={"success": False, "code": 40000001, "msg": "device not found"},
+        )
+    )
+    c = make_client()
+    with pytest.raises(httpx.HTTPStatusError):
+        c.get_energy_stats("d1", "hour", 1700000000000, 1700003599000)
+
+
+def test_get_energy_stats_returns_empty_list_when_no_result(mock_router):
+    mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(
+        return_value=_token_response()
+    )
+    mock_router.get("/v1.0/iot-03/devices/d1/statistics-month").mock(
+        return_value=httpx.Response(
+            200,
+            json={"success": True, "t": 1700000000000},
+        )
+    )
+    c = make_client()
+    stats = c.get_energy_stats("d1", "hour", 1700000000000, 1700003599000)
+    assert stats == []
