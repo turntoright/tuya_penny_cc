@@ -86,6 +86,8 @@ def test_date_range_writes_all_windows():
 
     _, rows = fake_writer.load.call_args.args
     assert len(rows) == 48  # 2 days × 24 hours × 1 device
+    assert rows[0]["stat_hour"] == "2026-04-13T00:00:00+00:00"
+    assert rows[-1]["stat_hour"] == "2026-04-14T23:00:00+00:00"
 
 
 def test_offline_device_skipped():
@@ -103,6 +105,19 @@ def test_offline_device_skipped():
     _, rows = fake_writer.load.call_args.args
     assert all(r["device_id"] == "d1" for r in rows)
     assert fake_tuya.get_energy_stats.call_count == 1  # only d1, default 1 window
+
+
+def test_partial_date_range_raises():
+    """start_date without end_date (or vice versa) must raise ValueError."""
+    fake_tuya = MagicMock()
+    fake_tuya.list_devices.return_value = iter([_make_device("d1", "znjdq", True)])
+    fake_writer = MagicMock()
+
+    with pytest.raises(ValueError, match="start_date and end_date"):
+        run(
+            tuya=fake_tuya, writer=fake_writer, run_id="r_partial",
+            now=lambda: _NOW, start_date=date(2026, 4, 13),
+        )
 
 
 def test_api_error_propagates():

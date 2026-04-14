@@ -40,6 +40,8 @@ def _hour_windows(
     if date is not None:
         base = datetime(date.year, date.month, date.day, tzinfo=UTC)
         return [base + timedelta(hours=h) for h in range(24)]
+    if (start_date is None) != (end_date is None):
+        raise ValueError("start_date and end_date must both be provided or both omitted")
     if start_date is not None and end_date is not None:
         windows: list[datetime] = []
         current = start_date
@@ -70,7 +72,7 @@ def run(
 
     rows: list[dict[str, Any]] = []
     for device in tuya.list_devices():
-        if not device["isOnline"]:
+        if not device.get("isOnline"):
             continue
         device_id = device["id"]
         category = device["category"]
