@@ -94,9 +94,8 @@ def test_date_range_writes_one_window_per_day_per_device():
 
 
 def test_partial_date_range_raises():
-    """start_date without end_date must raise ValueError."""
+    """start_date without end_date must raise ValueError (before device listing)."""
     fake_tuya = MagicMock()
-    fake_tuya.list_devices.return_value = iter([_make_device("d1", "znjdq", True)])
     fake_writer = MagicMock()
 
     with pytest.raises(ValueError, match="start_date and end_date"):
