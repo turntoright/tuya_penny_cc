@@ -1,6 +1,9 @@
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+import httpx
+import pytest
+
 from tuya_penny_cc.bq.schemas import RAW_ENERGY_REALTIME_SCHEMA
 from tuya_penny_cc.jobs.energy_realtime import run
 
@@ -62,6 +65,7 @@ def test_run_skips_offline_devices():
     assert rows_arg[0]["device_id"] == "d1"
     # get_device_dps must NOT be called for offline device
     assert fake_tuya.get_device_dps.call_count == 1
+    fake_tuya.get_device_dps.assert_called_once_with("d1")
 
 
 def test_run_all_devices_offline_writes_zero_rows():
@@ -84,8 +88,6 @@ def test_run_all_devices_offline_writes_zero_rows():
 
 
 def test_run_propagates_dp_error():
-    import httpx
-
     fake_tuya = MagicMock()
     fake_tuya.list_devices.return_value = iter([_make_device("d1", "znjdq", True)])
     fake_tuya.get_device_dps.side_effect = httpx.HTTPStatusError(
@@ -93,7 +95,6 @@ def test_run_propagates_dp_error():
     )
     fake_writer = MagicMock()
 
-    import pytest
     with pytest.raises(httpx.HTTPStatusError):
         run(tuya=fake_tuya, writer=fake_writer, run_id="run-4",
             now=lambda: datetime(2026, 4, 14, tzinfo=UTC))

@@ -13,8 +13,8 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from tuya_penny_cc.bq.schemas import RAW_ENERGY_REALTIME_SCHEMA
+from tuya_penny_cc.tuya.client import TuyaClient
 
-_DPS_PATH = "/v1.0/iot-03/devices/{device_id}/status"
 TABLE = "raw_energy_realtime"
 
 
@@ -45,13 +45,13 @@ def run(
         if not device.get("isOnline"):
             continue
         device_id = device["id"]
-        category = device.get("category", "")
+        category = device["category"]
         dps = tuya.get_device_dps(device_id)
         rows.append(
             {
                 "ingest_ts": ts_iso,
                 "ingest_run_id": run_id,
-                "source_endpoint": _DPS_PATH.format(device_id=device_id),
+                "source_endpoint": TuyaClient.DPS_PATH.format(device_id=device_id),
                 "payload": dps,
                 "device_id": device_id,
                 "category": category,
