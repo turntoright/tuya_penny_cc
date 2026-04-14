@@ -187,6 +187,7 @@ class TuyaClient:
     # ---- energy stats -----------------------------------------------------------
 
     ENERGY_STATS_PATH = "/v1.0/iot-03/devices/{device_id}/statistics-month"
+    _VALID_GRANULARITIES: frozenset[str] = frozenset({"hour", "day"})
 
     def get_energy_stats(
         self,
@@ -207,6 +208,11 @@ class TuyaClient:
             start_ts_ms: Window start as Unix milliseconds.
             end_ts_ms: Window end as Unix milliseconds.
         """
+        if granularity not in self._VALID_GRANULARITIES:
+            valid = sorted(self._VALID_GRANULARITIES)
+            raise ValueError(
+                f"granularity must be one of {valid!r}, got {granularity!r}"
+            )
         access_token = self._get_access_token()
         path = self.ENERGY_STATS_PATH.format(device_id=quote(device_id, safe=""))
         payload = self._signed_request(

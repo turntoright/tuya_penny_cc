@@ -242,3 +242,9 @@ def test_get_energy_stats_returns_empty_list_when_no_result(mock_router):
     c = make_client()
     stats = c.get_energy_stats("d1", "hour", 1700000000000, 1700003599000)
     assert stats == []
+
+
+def test_get_energy_stats_raises_on_invalid_granularity():
+    c = make_client()
+    with pytest.raises(ValueError, match="granularity must be one of"):
+        c.get_energy_stats("d1", "minute", 1700000000000, 1700003599000)
