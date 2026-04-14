@@ -184,6 +184,49 @@ class TuyaClient:
         )
         return payload.get("result") or []
 
+    # ---- energy stats -----------------------------------------------------------
+
+    ENERGY_STATS_PATH = "/v1.0/iot-03/devices/{device_id}/statistics-month"
+    _VALID_GRANULARITIES: frozenset[str] = frozenset({"hour", "day"})
+
+    def get_energy_stats(
+        self,
+        device_id: str,
+        granularity: str,
+        start_ts_ms: int,
+        end_ts_ms: int,
+    ) -> list[dict]:
+        """Return aggregated energy stats for a single device.
+
+        NOTE: Endpoint path and query param names are best-guess starting points
+        based on Tuya OpenAPI conventions. Verify against actual API response
+        during smoke testing and adjust path/params as needed.
+
+        Args:
+            device_id: Tuya device ID.
+            granularity: ``"hour"`` or ``"day"``.
+            start_ts_ms: Window start as Unix milliseconds.
+            end_ts_ms: Window end as Unix milliseconds.
+        """
+        if granularity not in self._VALID_GRANULARITIES:
+            valid = sorted(self._VALID_GRANULARITIES)
+            raise ValueError(
+                f"granularity must be one of {valid!r}, got {granularity!r}"
+            )
+        access_token = self._get_access_token()
+        path = self.ENERGY_STATS_PATH.format(device_id=quote(device_id, safe=""))
+        payload = self._signed_request(
+            method="GET",
+            path=path,
+            query={
+                "type": granularity,
+                "start_time": str(start_ts_ms),
+                "end_time": str(end_ts_ms),
+            },
+            access_token=access_token,
+        )
+        return payload.get("result") or []
+
     # ---- lifecycle -------------------------------------------------------
 
     def close(self) -> None:
