@@ -20,7 +20,7 @@ TABLE = "raw_energy_hourly"
 
 
 class _TuyaLike(Protocol):
-    def list_devices(self, *, page_size: int = 20) -> Any: ...
+    def list_devices(self) -> Any: ...
     def get_energy_stats(
         self, device_id: str, granularity: str, start_ts_ms: int, end_ts_ms: int
     ) -> list[dict]: ...
@@ -58,7 +58,6 @@ def run(
     writer: _WriterLike,
     run_id: str,
     now: Callable[[], datetime] = lambda: datetime.now(tz=UTC),
-    page_size: int = 20,
     date: _date | None = None,
     start_date: _date | None = None,
     end_date: _date | None = None,
@@ -70,8 +69,8 @@ def run(
     windows = _hour_windows(ts, date, start_date, end_date)
 
     rows: list[dict[str, Any]] = []
-    for device in tuya.list_devices(page_size=page_size):
-        if not device.get("isOnline"):
+    for device in tuya.list_devices():
+        if not device["isOnline"]:
             continue
         device_id = device["id"]
         category = device["category"]
