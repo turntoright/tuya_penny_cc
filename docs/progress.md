@@ -57,7 +57,7 @@ BigQuery append-only 原始表（`tuya_raw` dataset）：
 | 计划 | 描述 | 状态 |
 |---|---|---|
 | **A — Ingestion MVP** | device_sync 作业、BQ 写入器、CLI 入口、21 个单元测试 | ✅ 已完成 |
-| **B — 能耗作业** | energy_realtime、hourly、daily、历史回填 | 🔄 进行中 |
+| **B — 能耗作业** | energy_realtime、hourly、daily、历史回填（含 backfill CLI） | ✅ 已完成 |
 | **C — dbt 项目** | staging、快照（SCD2）、marts、拓扑层 | ⬜ 未开始 |
 | **D — 云部署** | Cloud Run、Scheduler、Secret Manager、CI/CD | ⬜ 未开始 |
 
@@ -161,9 +161,9 @@ BigQuery append-only 原始表（`tuya_raw` dataset）：
 | 作业 | 状态 |
 |---|---|
 | `energy_realtime` | ✅ 已完成（2026-04-14） |
-| `energy_hourly` | ⬜ 未开始 |
-| `energy_daily` | ⬜ 未开始 |
-| 历史回填（backfill） | ⬜ 未开始 |
+| `energy_hourly` | ✅ 已完成（2026-04-14） |
+| `energy_daily` | ✅ 已完成（2026-04-14） |
+| 历史回填（backfill CLI） | ✅ 已完成（集成至 hourly/daily，2026-04-14） |
 
 ### B.1 — energy_realtime 完成情况
 
@@ -206,19 +206,60 @@ BigQuery append-only 原始表（`tuya_raw` dataset）：
 
 ---
 
+## Plan B — B.2 energy_hourly / energy_daily 完成情况
+
+### 实施方式
+
+与 B.1 相同：subagent 驱动开发 + 两阶段 review（spec 符合性 + 代码质量），每个 task 独立提交。
+
+### 新增组件
+
+| 文件 | 内容 |
+|---|---|
+| `tuya/client.py` | 新增 `get_energy_stats(device_id, granularity, start_ts_ms, end_ts_ms)` |
+| `bq/schemas.py` | 新增 `RAW_ENERGY_HOURLY_SCHEMA`、`RAW_ENERGY_DAILY_SCHEMA` |
+| `jobs/energy_hourly.py` | 小时聚合作业，默认采集上一个完整小时 |
+| `jobs/energy_daily.py` | 日聚合作业，默认采集昨天 |
+| `main.py` | 新增 `Task.energy_hourly`、`Task.energy_daily`；新增 `--date`、`--start-date`、`--end-date` 参数 |
+
+### 关键设计决策
+
+- **端点（待 smoke test 确认）：** `GET /v1.0/iot-03/devices/{device_id}/statistics-month`
+  - 查询参数：`type`（`"hour"` / `"day"`）、`start_time`（ms）、`end_time`（ms）
+  - 路径和参数名为 Tuya OpenAPI 惯例推断，首次实际运行时需对照响应做确认
+- **时间窗口（全部 UTC）：**
+  - `energy_hourly`：默认 = 上一个完整小时；`--date` → 24 个窗口；`--start-date/--end-date` → 逐天展开 × 24
+  - `energy_daily`：默认 = 昨天；`--date` → 1 个窗口；`--start-date/--end-date` → 逐天展开 × 1
+- **`end_ms` 精确公式：** 排他性上界 `int(next_boundary.timestamp() * 1000) - 1`，无毫秒遗漏
+- **backfill 集成进 CLI：** `--date` 与 `--start-date/--end-date` 互斥；单独传其中一个校验报错
+- **只采集在线设备：** `isOnline == False` 静默跳过（与 `energy_realtime` 一致）
+- **`payload` 存完整聚合列表：** `list[dict]`，直接传入，不做 `json.dumps()`
+
+### 测试结果
+
+**43 个单元测试全部通过**，ruff 无告警。新增 16 个测试（3 client + 6 hourly + 6 daily + 1 main）。
+
+### 提交历史
+
+| Commit | 内容 |
+|---|---|
+| `23bbbe6` | docs: add energy_hourly & energy_daily job design spec (Plan B) |
+| `39fec3c` | docs: add energy_hourly & energy_daily implementation plan (Plan B) |
+| `6bee5a0` | feat(tuya): add get_energy_stats() to TuyaClient |
+| `12938f2` | fix(tuya): validate granularity in get_energy_stats |
+| `5cccc13` | feat(bq): add RAW_ENERGY_HOURLY_SCHEMA and RAW_ENERGY_DAILY_SCHEMA |
+| `4342ebe` | feat(jobs): add energy_hourly job |
+| `df8b6be` | fix(jobs): remove page_size param; use get() for isOnline |
+| `9a90cb0` | fix(jobs): guard partial date range; add boundary tests |
+| `1fe0a55` | feat(jobs): add energy_daily job |
+| `cdc7ecf` | fix(tests): remove dead list_devices setup in partial date range test |
+| `7b89eb2` | fix(jobs): use exclusive end_ms for energy_daily day window |
+| `bcb8251` | feat(cli): add energy_hourly and energy_daily tasks with date params |
+| `07e0bb6` | style(cli): wrap long typer.Option lines under 100 chars |
+
+---
+
 ## 下一步计划
-
-### Plan B 剩余 — energy_hourly / energy_daily / backfill
-
-| 作业 | 端点（待确认） | 采集频率 |
-|---|---|---|
-| `energy_hourly` | Tuya 小时聚合（端点未知，需 smoke test） | 每天 1 次 |
-| `energy_daily` | Tuya 日聚合（端点未知，需 smoke test） | 每天 1 次 |
-| `backfill` | 同上，支持日期范围参数 | 按需 |
-
-注意事项：
-- 两类设备（`znjdq` vs `dlq`）的 DP 字段不同，需分别处理
-- 端点选择需通过实际 API 测试验证（参考 v2.0 端点经验）
 
 ### Plan C — dbt 项目
 
