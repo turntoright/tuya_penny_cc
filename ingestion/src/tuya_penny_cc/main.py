@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from enum import StrEnum
+from typing import assert_never
 
 import typer
 from google.cloud import bigquery
@@ -56,8 +57,8 @@ def _main(
                 written = device_sync.run(tuya=tuya, writer=writer, run_id=run_id)
             case Task.energy_realtime:
                 written = energy_realtime.run(tuya=tuya, writer=writer, run_id=run_id)
-            case _:
-                raise typer.BadParameter(f"Unknown task: {task}")
+            case _ as unreachable:
+                assert_never(unreachable)
         logger.info("task=%s wrote %d rows", task.value, written)
     finally:
         tuya.close()
