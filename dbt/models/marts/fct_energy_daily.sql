@@ -21,5 +21,7 @@ SELECT *
 FROM source
 
 {% if is_incremental() %}
-WHERE stat_date > (SELECT MAX(stat_date) FROM {{ this }})
+-- Use a 2-day lookback so the current in-progress day gets updated on each run.
+-- The unique_key MERGE handles deduplication of existing rows.
+WHERE stat_date >= DATE_SUB((SELECT MAX(stat_date) FROM {{ this }}), INTERVAL 2 DAY)
 {% endif %}

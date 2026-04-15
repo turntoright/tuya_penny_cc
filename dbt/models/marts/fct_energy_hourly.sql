@@ -21,5 +21,7 @@ SELECT *
 FROM source
 
 {% if is_incremental() %}
-WHERE stat_hour > (SELECT MAX(stat_hour) FROM {{ this }})
+-- Use a 2-hour lookback so the current in-progress hour gets updated on each run.
+-- The unique_key MERGE handles deduplication of existing rows.
+WHERE stat_hour >= TIMESTAMP_SUB((SELECT MAX(stat_hour) FROM {{ this }}), INTERVAL 2 HOUR)
 {% endif %}

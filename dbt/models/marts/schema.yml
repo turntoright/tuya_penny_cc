@@ -18,6 +18,9 @@ models:
 
   - name: fct_energy_intervals
     description: "Event-level energy consumption per device. One row per add_ele DP change event."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [device_id, event_ts]
     columns:
       - name: device_id
         tests: [not_null]
@@ -30,6 +33,9 @@ models:
 
   - name: fct_energy_hourly
     description: "Hourly energy consumption per device, derived from DP event intervals."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [device_id, stat_hour]
     columns:
       - name: device_id
         tests: [not_null]
@@ -40,6 +46,9 @@ models:
 
   - name: fct_energy_daily
     description: "Daily energy consumption per device, derived from DP event intervals."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [device_id, stat_date]
     columns:
       - name: device_id
         tests: [not_null]
