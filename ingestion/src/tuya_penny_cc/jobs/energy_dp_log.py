@@ -72,18 +72,19 @@ def run(
     ingest_date_iso = ts.date().isoformat()
     windows = _date_windows(ts, date, start_date, end_date)
 
-    rows: list[dict[str, Any]] = []
+    total_written = 0
     for device in tuya.list_devices():
         if not device.get("isOnline"):
             continue
         device_id = device["id"]
         category = device["category"]
+        device_rows: list[dict[str, Any]] = []
         for d in windows:
             start_ms = int(datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp() * 1000)
             next_day = datetime(d.year, d.month, d.day, tzinfo=UTC) + timedelta(days=1)
             end_ms = int(next_day.timestamp() * 1000) - 1
             events = tuya.get_dp_log(device_id, DP_CODES, start_ms, end_ms)
-            rows.append(
+            device_rows.append(
                 {
                     "device_id": device_id,
                     "category": category,
@@ -97,4 +98,6 @@ def run(
                     "payload": events,
                 }
             )
-    return writer.load(TABLE, rows, schema=RAW_ENERGY_DP_LOG_SCHEMA)
+        # Write after each device so partial progress is preserved on failure.
+        total_written += writer.load(TABLE, device_rows, schema=RAW_ENERGY_DP_LOG_SCHEMA)
+    return total_written

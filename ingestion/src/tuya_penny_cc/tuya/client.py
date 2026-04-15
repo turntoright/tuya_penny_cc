@@ -230,8 +230,13 @@ class TuyaClient:
     # ---- device DP log ----------------------------------------------------------
 
     DP_LOG_PATH = "/v2.0/cloud/thing/{device_id}/report-logs"
-    # Note: path is best-guess based on Tuya v2 API conventions.
-    # Confirm and adjust during smoke test if the endpoint differs.
+    # Confirmed working during smoke test (2026-04-15).
+
+    # Tuya rate-limit error code for the DP log endpoint.
+    _DP_LOG_RATE_LIMIT_CODE = 40000309
+    # Per-page retry budget and base wait in seconds (doubles each attempt).
+    _DP_LOG_RATE_LIMIT_RETRIES = 5
+    _DP_LOG_RATE_LIMIT_BASE_WAIT_S = 10
 
     def get_dp_log(
         self,
@@ -244,6 +249,9 @@ class TuyaClient:
 
         Paginates using last_row_key cursor until all records are fetched.
         Returns a flat list of {code, value, event_time} dicts.
+
+        Automatically retries individual pages on Tuya's rate-limit error
+        (code 40000309) with exponential backoff (10 s, 20 s, … up to 5 times).
         """
         if not codes:
             raise ValueError("codes must be a non-empty list")
@@ -260,12 +268,7 @@ class TuyaClient:
             }
             if last_row_key:
                 query["last_row_key"] = last_row_key
-            payload = self._signed_request(
-                method="GET",
-                path=path,
-                query=query,
-                access_token=access_token,
-            )
+            payload = self._fetch_dp_log_page(path, query, access_token)
             result = payload.get("result") or {}
             page_events: list[dict] = result.get("logs") or []
             events.extend(page_events)
@@ -273,6 +276,37 @@ class TuyaClient:
             if not last_row_key:
                 break
         return events
+
+    def _fetch_dp_log_page(
+        self,
+        path: str,
+        query: dict[str, str],
+        access_token: str,
+    ) -> dict:
+        """Fetch a single DP log page, retrying on rate-limit (40000309)."""
+        for attempt in range(self._DP_LOG_RATE_LIMIT_RETRIES + 1):
+            try:
+                return self._signed_request(
+                    method="GET",
+                    path=path,
+                    query=query,
+                    access_token=access_token,
+                )
+            except httpx.HTTPStatusError as exc:
+                if attempt < self._DP_LOG_RATE_LIMIT_RETRIES:
+                    try:
+                        code = exc.response.json().get("code")
+                    except Exception:
+                        raise exc
+                    if code == self._DP_LOG_RATE_LIMIT_CODE:
+                        wait = min(
+                            self._DP_LOG_RATE_LIMIT_BASE_WAIT_S * (2**attempt),
+                            60,
+                        )
+                        time.sleep(wait)
+                        continue
+                raise
+        raise RuntimeError("unreachable")
 
     # ---- lifecycle -------------------------------------------------------
 

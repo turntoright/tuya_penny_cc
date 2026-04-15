@@ -51,7 +51,7 @@ def test_default_mode_writes_yesterday():
 
 
 def test_single_date_writes_one_row_per_device():
-    """--date 2026-04-14 with 2 online devices → 2 rows."""
+    """--date 2026-04-14 with 2 online devices → writer called once per device, 1 row each."""
     fake_tuya = MagicMock()
     fake_tuya.list_devices.return_value = iter([
         _make_device("d1", "znjdq", True),
@@ -59,13 +59,16 @@ def test_single_date_writes_one_row_per_device():
     ])
     fake_tuya.get_dp_log.return_value = _make_events()
     fake_writer = MagicMock()
-    fake_writer.load.return_value = 2
+    fake_writer.load.return_value = 1
 
     run(tuya=fake_tuya, writer=fake_writer, run_id="r2", now=lambda: _NOW, date=date(2026, 4, 14))
 
-    _, rows = fake_writer.load.call_args.args
-    assert len(rows) == 2
-    assert all(r["log_date"] == "2026-04-14" for r in rows)
+    assert fake_writer.load.call_count == 2
+    all_rows = [call.args[1] for call in fake_writer.load.call_args_list]
+    assert all(len(rows) == 1 for rows in all_rows)
+    assert all(rows[0]["log_date"] == "2026-04-14" for rows in all_rows)
+    device_ids = [rows[0]["device_id"] for rows in all_rows]
+    assert sorted(device_ids) == ["d1", "d2"]
 
 
 def test_date_range_writes_one_row_per_device_per_day():

@@ -338,3 +338,38 @@ def test_get_dp_log_returns_empty_list_when_no_logs(mock_router):
     c = make_client()
     events = c.get_dp_log("d1", ["add_ele"], 0, 9_999_999_999_999)
     assert events == []
+
+
+def test_get_dp_log_retries_on_rate_limit(mock_router):
+    """Rate-limit (40000309) on a page triggers retry; succeeds on second attempt."""
+    mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(
+        return_value=_token_response()
+    )
+    mock_router.get("/v2.0/cloud/thing/d1/report-logs").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "success": False,
+                    "code": 40000309,
+                    "msg": "The log query is too frequent, please try again later!",
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "result": {
+                        "logs": [{"code": "add_ele", "value": "10", "event_time": 1_700_000_000_000}],
+                        "last_row_key": None,
+                    },
+                },
+            ),
+        ]
+    )
+    c = make_client()
+    # Override wait so the test doesn't actually sleep.
+    c._DP_LOG_RATE_LIMIT_BASE_WAIT_S = 0
+    events = c.get_dp_log("d1", ["add_ele"], 0, 9_999_999_999_999)
+    assert len(events) == 1
+    assert events[0]["code"] == "add_ele"
