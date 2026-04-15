@@ -245,6 +245,8 @@ class TuyaClient:
         Paginates using last_row_key cursor until all records are fetched.
         Returns a flat list of {code, value, event_time} dicts.
         """
+        if not codes:
+            raise ValueError("codes must be a non-empty list")
         access_token = self._get_access_token()
         path = self.DP_LOG_PATH.format(device_id=quote(device_id, safe=""))
         events: list[dict] = []
@@ -267,7 +269,7 @@ class TuyaClient:
             result = payload.get("result") or {}
             page_events: list[dict] = result.get("logs") or []
             events.extend(page_events)
-            last_row_key = result.get("last_row_key") or None
+            last_row_key = result.get("last_row_key")  # None or "" both mean no more pages
             if not last_row_key:
                 break
         return events

@@ -323,3 +323,18 @@ def test_get_dp_log_raises_on_api_error(mock_router):
     c = make_client()
     with pytest.raises(httpx.HTTPStatusError):
         c.get_dp_log("d1", ["add_ele"], 0, 9_999_999_999_999)
+
+
+def test_get_dp_log_returns_empty_list_when_no_logs(mock_router):
+    mock_router.get("/v1.0/token", params={"grant_type": "1"}).mock(
+        return_value=_token_response()
+    )
+    mock_router.get("/v2.0/cloud/thing/d1/report-logs").mock(
+        return_value=httpx.Response(
+            200,
+            json={"success": True, "result": {}},
+        )
+    )
+    c = make_client()
+    events = c.get_dp_log("d1", ["add_ele"], 0, 9_999_999_999_999)
+    assert events == []
