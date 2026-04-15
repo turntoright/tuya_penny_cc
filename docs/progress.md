@@ -57,8 +57,8 @@ BigQuery append-only 原始表（`tuya_raw` dataset）：
 | 计划 | 描述 | 状态 |
 |---|---|---|
 | **A — Ingestion MVP** | device_sync 作业、BQ 写入器、CLI 入口、21 个单元测试 | ✅ 已完成 |
-| **B — 能耗作业** | energy_realtime、hourly、daily、历史回填（含 backfill CLI） | ✅ 已完成 |
-| **C — dbt 项目** | staging、快照（SCD2）、marts、拓扑层 | ⬜ 未开始 |
+| **B — 能耗作业** | energy_realtime、hourly、daily、B.3 DP 历史日志、历史回填 | ✅ 已完成 |
+| **C — dbt 项目** | staging、快照（SCD2）、seeds、marts（含 incremental facts） | ✅ 已完成 |
 | **D — 云部署** | Cloud Run、Scheduler、Secret Manager、CI/CD | ⬜ 未开始 |
 
 ---
@@ -259,14 +259,155 @@ BigQuery append-only 原始表（`tuya_raw` dataset）：
 
 ---
 
+## Plan B.3 — energy_dp_log 完成情况（2026-04-15）
+
+### 背景
+
+在开始 Plan C 之前，通过冒烟测试发现 `add_ele`（累计能耗计数器，单位 0.01 kWh）的历史变更记录是获取精细粒度能耗数据的最佳来源。Tuya 保留约 10 天历史。因此增加 Plan B.3：通过 DP 历史日志端点一次性抓取一天的数据。
+
+### 新增组件
+
+| 文件 | 内容 |
+|---|---|
+| `tuya/client.py` | 新增 `get_dp_log(device_id, codes, start_ts_ms, end_ts_ms)` 方法，游标分页 |
+| `bq/schemas.py` | 新增 `RAW_ENERGY_DP_LOG_SCHEMA`（8 个字段，`payload` 存 JSON 数组） |
+| `jobs/energy_dp_log.py` | DP 日志作业：逐设备×逐日拉取并写入 BQ |
+| `main.py` | 新增 `Task.energy_dp_log`，支持 `--date` / `--start-date/--end-date` |
+
+### 冒烟测试发现与修复
+
+#### 端点确认
+
+`GET /v2.0/cloud/thing/{device_id}/report-logs` — 确认可用。
+
+响应结构：
+```jsonc
+{
+  "result": {
+    "device_id": "...",
+    "has_more": true,
+    "last_row_key": "E134...",
+    "logs": [
+      {"code": "add_ele", "event_time": 1776210807000, "value": "91"},
+      {"code": "cur_current", "event_time": 1776207992390, "value": "462"}
+    ],
+    "total": 1000
+  }
+}
+```
+
+关键事实：
+- `event_time` 单位：**毫秒**
+- `value` 类型：**字符串**（dbt 中需 CAST 为 FLOAT64）
+- `add_ele` 为累计计数器，单位 0.01 kWh，周期性归零（约 100 kWh 后）
+- 空窗口时 `result` 仅含 `{"has_more": false}`，无 `logs` 键
+
+#### Auth 签名 Bug 修复
+
+**现象：** 多码查询（`codes=add_ele,cur_power,cur_current,cur_voltage`）返回 `code=1004 sign invalid`。
+
+**根因：** `auth.py` 在构建规范查询字符串时将逗号编码为 `%2C`（`safe=''`），但 Tuya 服务端以解码后的 URL 验证签名（即逗号应保持为字面字符）。
+
+**修复：** `build_string_to_sign` 中将 `quote(v, safe='')` 改为 `quote(v, safe=',')`。
+
+#### energy_hourly/daily 端点不可用
+
+`GET /v1.0/iot-03/devices/{id}/statistics-month` 返回 `1108 uri path invalid`，该账号未订阅此端点。已测试的所有 v1/v2 变体均失败。**影响：** `raw_energy_hourly` 和 `raw_energy_daily` 表将保持为空；Plan C 的 `stg_energy_hourly` / `stg_energy_daily` 改为从 `stg_energy_dp_log` 派生。
+
+### 测试结果
+
+**54 个单元测试全部通过**（含 1 个新 auth 测试），ruff 无告警。
+
+### 提交历史
+
+| Commit | 内容 |
+|---|---|
+| `390baa4` | feat(tuya): add get_dp_log() to TuyaClient |
+| `bbd128f` | fix(tuya): guard empty codes, add empty-logs test |
+| `8bd07f4` | feat(bq): add RAW_ENERGY_DP_LOG_SCHEMA |
+| `4d90eae` | feat(jobs): add energy_dp_log job |
+| `e8825f6` | feat(cli): add energy_dp_log task to CLI dispatcher |
+| `d5842c0` | fix(auth): do not percent-encode commas in query string signing |
+| `4b75143` | docs: record smoke test findings for DP log and energy stats endpoints |
+
+---
+
+## Plan C — dbt 项目完成情况（2026-04-15）
+
+### 实施方式
+
+与 Plan A/B 相同：subagent 驱动开发 + 两阶段 review（spec 符合性 + 代码质量）。
+
+### 项目结构
+
+```
+dbt/
+├── dbt_project.yml           # 项目配置（staging/marts 物化策略、增量 unique_key）
+├── profiles.yml              # BigQuery 连接（application-default，env_var 驱动）
+├── requirements.txt          # dbt-bigquery>=1.8,<2.0
+├── packages.yml              # dbt_utils>=1.0（复合唯一性测试）
+├── seeds/
+│   └── device_relationships.csv    # 拓扑关系 stub（仅表头，等待实际数据）
+├── snapshots/
+│   └── snap_devices.sql            # SCD Type 2：追踪设备名称/分类/在线状态变更
+└── models/
+    ├── staging/               # dataset: tuya_staging
+    │   ├── schema.yml
+    │   ├── stg_devices_latest.sql    # view：每设备最新记录，camelCase→snake_case
+    │   ├── stg_energy_dp_log.sql     # table：JSON 展开 + LAG delta（interval_kwh）
+    │   ├── stg_energy_hourly.sql     # table：从 dp_log 按小时聚合
+    │   └── stg_energy_daily.sql      # table：从 dp_log 按日聚合
+    └── marts/                 # dataset: tuya_marts
+        ├── schema.yml
+        ├── dim_devices.sql           # 设备维度表（LEFT JOIN device_relationships）
+        ├── fct_energy_intervals.sql  # incremental：最细粒度能耗事件
+        ├── fct_energy_hourly.sql     # incremental：每设备小时能耗（2h lookback）
+        └── fct_energy_daily.sql      # incremental：每设备日能耗（2d lookback）
+```
+
+### 关键设计决策
+
+| 决策 | 原因 |
+|---|---|
+| `stg_energy_hourly/daily` 从 `stg_energy_dp_log` 派生 | `statistics-month` 端点不可用 |
+| `TIMESTAMP_MILLIS()` 转换 `event_time` | 冒烟测试确认单位为毫秒 |
+| `CAST(value AS FLOAT64)` | API 返回字符串值 |
+| LAG 分区：`(device_id, dp_code)` | 确保同类型 DP 之间计算 delta |
+| `interval_kwh` 允许为负 | 计数器归零时保留，不静默丢弃 |
+| incremental lookback 2h/2d | 避免当前进行中的小时/日被截断遗漏 |
+| `dbt_utils.unique_combination_of_columns` | 覆盖复合主键的数据质量断言 |
+| `snap_devices` strategy=check | 追踪 name/category/product_name/is_online 变更（SCD2） |
+
+### 物化策略
+
+| 模型 | 物化方式 | unique_key |
+|---|---|---|
+| stg_devices_latest | view | — |
+| stg_energy_dp_log | table | — |
+| stg_energy_hourly/daily | table | — |
+| dim_devices | table | — |
+| fct_energy_intervals | incremental | (device_id, event_ts) |
+| fct_energy_hourly | incremental | (device_id, stat_hour) |
+| fct_energy_daily | incremental | (device_id, stat_date) |
+
+### 提交历史
+
+| Commit | 内容 |
+|---|---|
+| `38e46c0` | feat(dbt): scaffold dbt project (dbt_project.yml, profiles.yml) |
+| `8094170` | build(gitignore): add dbt artifacts and logs |
+| `5c14bd9` | feat(dbt): add device_relationships seed and stg_devices_latest |
+| `41b65a8` | feat(dbt): add stg_energy_dp_log with unnest and add_ele delta |
+| `6b08933` | feat(dbt): add stg_energy_hourly and stg_energy_daily derived from dp_log |
+| `06065de` | feat(dbt): add snap_devices SCD2 snapshot |
+| `89ea5f2` | feat(dbt): add dim_devices dimension table |
+| `01d2260` | feat(dbt): add fct_energy_intervals incremental fact table |
+| `c229f04` | feat(dbt): add fct_energy_hourly and fct_energy_daily incremental facts |
+| `68bbac6` | fix(dbt): use lookback window in incremental facts; add composite unique tests |
+
+---
+
 ## 下一步计划
-
-### Plan C — dbt 项目
-
-- `tuya_staging` dataset：设备去重、类型转换、字段重命名（camelCase → snake_case）
-- `snap_devices` SCD2 快照：追踪名称和分类变更
-- `snap_device_relationships` SCD2 快照：追踪拓扑变更
-- `tuya_marts` dataset：设备维度表、能耗事实表、拓扑计算（父净负载）
 
 ### Plan D — 云部署
 

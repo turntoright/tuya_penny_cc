@@ -1,8 +1,9 @@
 # Plan B.3 + C — DP History Log Ingestion & dbt Project Design
 
 **Date:** 2026-04-15
-**Branch:** `feat/plan-c-dbt`
+**Branch:** `feat/plan-c-dbt` → merged to `main` 2026-04-15
 **Scope:** Plan B.3 (energy_dp_log ingestion job) + Plan C (dbt staging, snapshots, seeds, marts)
+**Status:** ✅ Complete
 
 ---
 
@@ -37,19 +38,41 @@ Device inventory:
 ### Tuya Endpoint
 
 ```
-GET /v2.0/cloud/thing/{device_id}/report-logs   (latest API version — confirm path during smoke test)
+GET /v2.0/cloud/thing/{device_id}/report-logs   ✅ confirmed working (2026-04-15)
 
 Query params:
   codes         — comma-separated DP codes: add_ele,cur_power,cur_current,cur_voltage
   start_time    — Unix milliseconds (window start)
   end_time      — Unix milliseconds (window end)
-  size          — page size (max 50)
+  size          — page size (max 50 confirmed)
   last_row_key  — cursor for pagination (returned in response)
 ```
 
-Response record format: `{code, value, event_time}` where `event_time` is Unix milliseconds.
+Response structure (confirmed):
+```jsonc
+{
+  "result": {
+    "device_id": "...",
+    "has_more": true,
+    "last_row_key": "E134...",
+    "logs": [
+      {"code": "add_ele", "event_time": 1776210807000, "value": "91"},
+      {"code": "cur_current", "event_time": 1776207992390, "value": "462"}
+    ],
+    "total": 1000
+  }
+}
+```
 
-**Note:** Endpoint path and query parameter names are best-guess based on Tuya OpenAPI v2 conventions. Verify against actual API response during smoke testing and adjust as needed. Tuya retains approximately 10 days of DP history.
+**Confirmed facts (2026-04-15 smoke test):**
+- `event_time` unit: **Unix milliseconds** ✅
+- `value` type: **string** (must cast to FLOAT64 in dbt)
+- `add_ele` unit: **0.01 kWh** (divide by 100)
+- `add_ele` counter resets periodically (~100 kWh max); negative deltas preserved in staging
+- Empty window response: `result: {"has_more": false}` only (no `logs` key)
+- Tuya retains approximately 10 days of DP history
+
+**Auth signing bug (fixed 2026-04-15):** Multi-code queries (`codes=add_ele,cur_power,...`) returned `code=1004 sign invalid` due to commas being percent-encoded as `%2C` in the canonical signing string. Tuya verifies signatures against the decoded URL, so commas must remain literal. Fixed by using `safe=','` in `urllib.parse.quote()` inside `build_string_to_sign`.
 
 ### New BQ Table: `tuya_raw.raw_energy_dp_log`
 
@@ -108,12 +131,10 @@ python -m tuya_penny_cc --task energy_dp_log --start-date 2026-04-05 --end-date 
 
 ### Smoke Test Gate
 
-After B.3 implementation, run against real account and confirm:
-1. Endpoint path and query params are correct
-2. `event_time` precision (milliseconds) and `add_ele` unit (0.01 kWh)
-3. Whether `add_ele` counter resets (negative delta handling strategy)
-
-**Do not start dbt models until smoke test passes.**
+✅ **Passed 2026-04-15.** All three checks confirmed:
+1. Endpoint `/v2.0/cloud/thing/{device_id}/report-logs` — confirmed working
+2. `event_time` is milliseconds; `add_ele` unit is 0.01 kWh — confirmed
+3. `add_ele` counter resets at ~100 kWh; negative deltas preserved in staging, flagged in marts
 
 ---
 
@@ -125,6 +146,8 @@ After B.3 implementation, run against real account and confirm:
 dbt/
 ├── dbt_project.yml
 ├── profiles.yml
+├── requirements.txt                  # dbt-bigquery>=1.8,<2.0
+├── packages.yml                      # dbt_utils>=1.0 for composite unique tests
 ├── seeds/
 │   └── device_relationships.csv      # stub — header only; filled when topology exists
 ├── snapshots/
@@ -134,8 +157,8 @@ dbt/
 │   │   ├── schema.yml
 │   │   ├── stg_devices_latest.sql
 │   │   ├── stg_energy_dp_log.sql
-│   │   ├── stg_energy_hourly.sql
-│   │   └── stg_energy_daily.sql
+│   │   ├── stg_energy_hourly.sql     # derived from stg_energy_dp_log (not raw table)
+│   │   └── stg_energy_daily.sql      # derived from stg_energy_dp_log (not raw table)
 │   └── marts/                        # dataset: tuya_marts
 │       ├── schema.yml
 │       ├── dim_devices.sql
@@ -183,19 +206,23 @@ dbt/
 
 ### `stg_energy_hourly`
 
-- Source: `tuya_raw.raw_energy_hourly`
-- Dedup: `ROW_NUMBER() OVER (PARTITION BY device_id, stat_hour ORDER BY ingest_ts DESC) = 1`
-- Unnests payload; extracts Tuya kWh value
+- **Source: `stg_energy_dp_log`** (not `raw_energy_hourly` — statistics-month endpoint unavailable)
+- Filters `dp_code = 'add_ele'` and `interval_kwh > 0` (excludes counter resets)
+- Buckets `event_ts` via `TIMESTAMP_TRUNC(event_ts, HOUR)` → `stat_hour`
+- Aggregates `SUM(interval_kwh)` per `(device_id, category, stat_hour)`
 - Fields: `device_id`, `category`, `stat_hour`, `energy_kwh`
 - Materialization: **table**
 
 ### `stg_energy_daily`
 
-- Source: `tuya_raw.raw_energy_daily`
-- Dedup: `ROW_NUMBER() OVER (PARTITION BY device_id, stat_date ORDER BY ingest_ts DESC) = 1`
-- Unnests payload; extracts Tuya kWh value
+- **Source: `stg_energy_dp_log`** (not `raw_energy_daily` — statistics-month endpoint unavailable)
+- Filters `dp_code = 'add_ele'` and `interval_kwh > 0` (excludes counter resets)
+- Extracts `DATE(event_ts)` → `stat_date`
+- Aggregates `SUM(interval_kwh)` per `(device_id, category, stat_date)`
 - Fields: `device_id`, `category`, `stat_date`, `energy_kwh`
 - Materialization: **table**
+
+> **Note:** The Tuya `statistics-month` endpoint (`/v1.0/iot-03/devices/{id}/statistics-month`) returns `1108 uri path invalid` on this account. All v1/v2 variants tested are unavailable. `raw_energy_hourly` and `raw_energy_daily` tables remain empty. Hourly/daily aggregations are derived entirely from DP event intervals.
 
 ---
 
@@ -234,7 +261,7 @@ Current: header only (stub). Filled manually when parent-child topology is estab
 
 ### `fct_energy_intervals` (finest granularity)
 
-- Source: `stg_energy_dp_log` WHERE `dp_code = 'add_ele'`, JOIN `dim_devices`
+- Source: `stg_energy_dp_log` WHERE `dp_code = 'add_ele'` AND `interval_kwh IS NOT NULL`, JOIN `dim_devices`
 - One row per `add_ele` change event per device
 - Fields:
 
@@ -246,24 +273,27 @@ Current: header only (stub). Filled manually when parent-child topology is estab
 | `event_ts` | Event timestamp (UTC) |
 | `prev_event_ts` | Previous event timestamp |
 | `interval_minutes` | Duration of interval in minutes |
-| `interval_kwh` | Energy consumed in this interval (kWh) |
+| `interval_kwh` | Energy consumed in this interval (kWh); negative = counter reset |
 | `cumulative_kwh` | `add_ele` cumulative value / 100.0 |
+| `is_counter_reset` | TRUE when `interval_kwh < 0` |
 
-- Materialization: **incremental** (append by `event_ts`)
+- Materialization: **incremental**, unique_key: `(device_id, event_ts)`
 
 ### `fct_energy_hourly`
 
 - Source: `stg_energy_hourly` JOIN `dim_devices`
 - One row per (device, hour)
 - Fields: `device_id`, `name`, `category`, `stat_hour`, `energy_kwh`
-- Materialization: **incremental**
+- Materialization: **incremental**, unique_key: `(device_id, stat_hour)`
+- Incremental filter: `stat_hour >= MAX(stat_hour) - INTERVAL 2 HOUR` (2-hour lookback for current-hour updates)
 
 ### `fct_energy_daily`
 
 - Source: `stg_energy_daily` JOIN `dim_devices`
 - One row per (device, date)
 - Fields: `device_id`, `name`, `category`, `stat_date`, `energy_kwh`
-- Materialization: **incremental**
+- Materialization: **incremental**, unique_key: `(device_id, stat_date)`
+- Incremental filter: `stat_date >= MAX(stat_date) - INTERVAL 2 DAY` (2-day lookback for current-day updates)
 
 ---
 
@@ -273,13 +303,15 @@ Current: header only (stub). Filled manually when parent-child topology is estab
 
 | Model | Tests |
 |-------|-------|
-| All staging | `not_null` on all fields |
+| All staging | `not_null` on key fields |
 | `stg_energy_dp_log` | `accepted_values` for `dp_code` |
 | `dim_devices` | `unique` + `not_null` on `device_id` |
-| `fct_energy_intervals` | `not_null` on `device_id`, `event_ts`, `interval_kwh`; `relationships` to `dim_devices` |
-| `fct_energy_hourly` | `not_null`; `relationships` to `dim_devices` |
-| `fct_energy_daily` | `not_null`; `relationships` to `dim_devices` |
+| `fct_energy_intervals` | `not_null` on `device_id`, `event_ts`, `interval_kwh`, `is_counter_reset`; composite unique on `(device_id, event_ts)` via `dbt_utils` |
+| `fct_energy_hourly` | `not_null`; composite unique on `(device_id, stat_hour)` via `dbt_utils` |
+| `fct_energy_daily` | `not_null`; composite unique on `(device_id, stat_date)` via `dbt_utils` |
 | All categories | `accepted_values`: `znjdq`, `dlq` |
+
+Requires `packages.yml` with `dbt-labs/dbt_utils >=1.0.0`.
 
 ### Data Tests
 
