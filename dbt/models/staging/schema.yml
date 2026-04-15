@@ -25,3 +25,20 @@ models:
               values: ['znjdq', 'dlq']
       - name: is_online
         tests: [not_null]
+
+  - name: stg_energy_dp_log
+    description: "Unnested DP log events with add_ele delta (interval_kwh)."
+    columns:
+      - name: device_id
+        tests: [not_null]
+      - name: dp_code
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['add_ele', 'cur_power', 'cur_current', 'cur_voltage']
+      - name: dp_value
+        tests: [not_null]
+      - name: event_ts
+        tests: [not_null]
+      - name: log_date
+        tests: [not_null]
