@@ -263,7 +263,7 @@ BigQuery append-only 原始表（`tuya_raw` dataset）：
 
 ### 背景
 
-在开始 Plan C 之前，通过冒烟测试发现 `add_ele`（累计能耗计数器，单位 0.01 kWh）的历史变更记录是获取精细粒度能耗数据的最佳来源。Tuya 保留约 10 天历史。因此增加 Plan B.3：通过 DP 历史日志端点一次性抓取一天的数据。
+在开始 Plan C 之前，通过冒烟测试发现 `add_ele`（累计能耗计数器，单位 0.01 kWh）的历史变更记录是获取精细粒度能耗数据的最佳来源。Tuya 实际保留约 **7 天**历史（原估计 10 天，回填验证后更正）。因此增加 Plan B.3：通过 DP 历史日志端点一次性抓取一天的数据。
 
 ### 新增组件
 
@@ -314,9 +314,35 @@ BigQuery append-only 原始表（`tuya_raw` dataset）：
 
 `GET /v1.0/iot-03/devices/{id}/statistics-month` 返回 `1108 uri path invalid`，该账号未订阅此端点。已测试的所有 v1/v2 变体均失败。**影响：** `raw_energy_hourly` 和 `raw_energy_daily` 表将保持为空；Plan C 的 `stg_energy_hourly` / `stg_energy_daily` 改为从 `stg_energy_dp_log` 派生。
 
+### 回填运行中发现的问题（2026-04-15）
+
+在执行 10 天历史回填时发现并修复了两个问题：
+
+| 问题 | 错误码 | 修复 |
+|---|---|---|
+| 速率限制 | `40000309` | `_fetch_dp_log_page()` 指数退避重试（10 s → 20 s → 40 s → 60 s，最多 5 次） |
+| Token 过期 | `1010` | 每次 fetch 均调用 `_get_access_token()`，不再在 `get_dp_log()` 开始时一次性获取 |
+
+同时将写入策略改为**逐设备写入** BQ，确保回填中断后已处理设备的数据不丢失。
+
+### 设计简化：仅采集 add_ele（2026-04-15）
+
+原计划采集 `add_ele`、`cur_power`、`cur_current`、`cur_voltage` 四个 DP 码。
+实际上只需要 `add_ele` 即可满足能耗分析需求。缩减后：
+
+- API 调用量减少约 75%
+- BQ 存储量减少约 75%
+- dbt 模型简化：`stg_energy_dp_log` 去除 `dp_code` 列及 LAG 分区条件
+- `stg_energy_hourly/daily` 和 `fct_energy_intervals` 去除 `WHERE dp_code = 'add_ele'` 过滤（已无意义）
+
+### 数据保留期
+
+Tuya 实际保留约 **7 天** DP 日志历史（早期估计 10 天，回填验证后更正）。
+日常任务应在当天运行，避免数据丢失。
+
 ### 测试结果
 
-**54 个单元测试全部通过**（含 1 个新 auth 测试），ruff 无告警。
+**55 个单元测试全部通过**，ruff 无告警。
 
 ### 提交历史
 
@@ -329,6 +355,8 @@ BigQuery append-only 原始表（`tuya_raw` dataset）：
 | `e8825f6` | feat(cli): add energy_dp_log task to CLI dispatcher |
 | `d5842c0` | fix(auth): do not percent-encode commas in query string signing |
 | `4b75143` | docs: record smoke test findings for DP log and energy stats endpoints |
+| `b6d28fb` | docs: record Plan B energy_hourly/daily completion and energy stats endpoint notes |
+| `bbb81f9` | refactor: narrow ingestion to add_ele only, drop multi-code support |
 
 ---
 
@@ -372,7 +400,7 @@ dbt/
 | `stg_energy_hourly/daily` 从 `stg_energy_dp_log` 派生 | `statistics-month` 端点不可用 |
 | `TIMESTAMP_MILLIS()` 转换 `event_time` | 冒烟测试确认单位为毫秒 |
 | `CAST(value AS FLOAT64)` | API 返回字符串值 |
-| LAG 分区：`(device_id, dp_code)` | 确保同类型 DP 之间计算 delta |
+| LAG 分区：`(device_id)` | 仅含 add_ele，无需按 dp_code 分区 |
 | `interval_kwh` 允许为负 | 计数器归零时保留，不静默丢弃 |
 | incremental lookback 2h/2d | 避免当前进行中的小时/日被截断遗漏 |
 | `dbt_utils.unique_combination_of_columns` | 覆盖复合主键的数据质量断言 |

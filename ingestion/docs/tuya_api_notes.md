@@ -6,7 +6,7 @@ type: reference
 
 # Tuya OpenAPI — findings and gotchas
 
-Collected during initial bring-up (2026-04-14).
+Collected during initial bring-up (2026-04-14); updated 2026-04-15 after backfill runs.
 
 ## 1. Device-list endpoint
 
@@ -178,24 +178,47 @@ Key findings:
 - When no events exist for a device/window, `result` is `{"has_more": false}` (no `logs` key)
 - `size` max confirmed: 50 works fine; larger values untested
 
-### Multi-code signing bug (fixed 2026-04-15)
+### Codes fetched
+
+Only `add_ele` is fetched (the cumulative energy counter). `cur_power`, `cur_current`, and
+`cur_voltage` were originally planned but removed — they are not needed for energy analysis and
+fetching them triples API call volume.
+
+### Signing bug (historical note — only relevant if multi-code queries are re-introduced)
 
 Calling with multiple codes (e.g. `codes=add_ele,cur_power,cur_current,cur_voltage`) returned
-`code=1004 msg=sign invalid` before the fix. Root cause: `auth.py` was percent-encoding commas
-as `%2C` in the canonical query string, but Tuya's server verifies signatures against the decoded
-URL (literal commas). Fix: use `safe=','` in `urllib.parse.quote()` when building the signing string.
+`code=1004 msg=sign invalid`. Root cause: `auth.py` was percent-encoding commas as `%2C` in the
+canonical query string, but Tuya's server verifies signatures against the decoded URL (literal
+commas). Fixed by using `safe=','` in `urllib.parse.quote()` inside `build_string_to_sign`.
 
 ### Rate limiting
 
-Tuya rate-limits the DP log endpoint per device. Error: `code=40000309 msg=The log query is too
-frequent, please try again later!` Seen when making many requests during testing. Normal daily
-runs are unaffected; add a delay between devices in high-frequency backfill scenarios if needed.
+Tuya rate-limits the DP log endpoint per device. Error: `code=40000309`. Seen during backfill runs
+with many devices. Fix implemented in `_fetch_dp_log_page()`: exponential backoff retry (base 10 s,
+doubles each attempt, capped at 60 s, max 5 retries). Normal daily runs are unaffected.
+
+### Token expiry during long backfills
+
+Tuya access tokens expire after ~6700 s. During backfill runs with many devices + rate-limit waits,
+a token captured once at the start of `get_dp_log()` would expire mid-run (`code=1010 token
+invalid`). Fix: `_fetch_dp_log_page()` calls `self._get_access_token()` on every fetch attempt so
+the token is always refreshed transparently.
+
+### Per-device write strategy
+
+`energy_dp_log.run()` writes to BigQuery after each device (not after all devices). This preserves
+partial progress if a multi-device backfill is interrupted mid-way.
 
 ### `add_ele` value behaviour
 
 `add_ele` reports a cumulative counter in units of **0.01 kWh** that resets periodically. Observed
-range 0-99 within a single day. The counter likely resets to 0 at some threshold (~100). The dbt
-LAG model must handle negative deltas (counter reset) — flag them rather than silently dropping.
+range 0–99 within a single day. The counter resets to 0 at ~100 kWh. The dbt LAG model handles
+negative deltas (counter reset) by flagging them rather than silently dropping.
+
+### Data retention
+
+**Tuya retains approximately 7 days of DP log history.** Confirmed during backfill (2026-04-15):
+10-day request returned data only for the most recent ~7 days for active devices.
 
 ---
 

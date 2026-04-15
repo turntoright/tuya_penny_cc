@@ -41,7 +41,7 @@ Device inventory:
 GET /v2.0/cloud/thing/{device_id}/report-logs   ✅ confirmed working (2026-04-15)
 
 Query params:
-  codes         — comma-separated DP codes: add_ele,cur_power,cur_current,cur_voltage
+  codes         — DP code(s): add_ele only (cur_power/cur_current/cur_voltage dropped)
   start_time    — Unix milliseconds (window start)
   end_time      — Unix milliseconds (window end)
   size          — page size (max 50 confirmed)
@@ -70,7 +70,7 @@ Response structure (confirmed):
 - `add_ele` unit: **0.01 kWh** (divide by 100)
 - `add_ele` counter resets periodically (~100 kWh max); negative deltas preserved in staging
 - Empty window response: `result: {"has_more": false}` only (no `logs` key)
-- Tuya retains approximately 10 days of DP history
+- Tuya retains approximately **7 days** of DP history (confirmed during backfill 2026-04-15; earlier 10-day estimate was incorrect)
 
 **Auth signing bug (fixed 2026-04-15):** Multi-code queries (`codes=add_ele,cur_power,...`) returned `code=1004 sign invalid` due to commas being percent-encoded as `%2C` in the canonical signing string. Tuya verifies signatures against the decoded URL, so commas must remain literal. Fixed by using `safe=','` in `urllib.parse.quote()` inside `build_string_to_sign`.
 
@@ -110,9 +110,9 @@ def get_dp_log(
 
 - Default: yesterday's data
 - `--date` / `--start-date + --end-date` backfill (consistent with hourly/daily CLI)
-- Maximum lookback: 10 days (Tuya retention limit)
+- Maximum lookback: 7 days (Tuya retention limit — confirmed 2026-04-15)
 - Skips offline devices (consistent with other jobs)
-- Fetches codes: `add_ele`, `cur_power`, `cur_current`, `cur_voltage`
+- Fetches codes: `add_ele` only (`cur_power`/`cur_current`/`cur_voltage` dropped — not needed)
 
 ### CLI
 
@@ -193,21 +193,21 @@ dbt/
 
 - Source: `tuya_raw.raw_energy_dp_log`
 - Dedup: `ROW_NUMBER() OVER (PARTITION BY device_id, log_date ORDER BY ingest_ts DESC) = 1`
-- Unnests `payload` array → one row per DP event
-- Filters to energy-relevant codes: `add_ele`, `cur_power`, `cur_current`, `cur_voltage`
+- Unnests `payload` array → one row per `add_ele` event
 - Converts `event_time` (ms) → `event_ts` (TIMESTAMP)
-- Computes `add_ele` delta:
+- Computes delta:
   ```sql
-  LAG(dp_value) OVER (PARTITION BY device_id, dp_code ORDER BY event_ts) AS prev_value
+  LAG(dp_value) OVER (PARTITION BY device_id ORDER BY event_ts) AS prev_value
   -- interval_kwh = (dp_value - prev_value) / 100.0
   ```
-- Fields: `device_id`, `category`, `dp_code`, `dp_value`, `prev_value`, `event_ts`, `prev_event_ts`, `interval_kwh`, `log_date`
+- Fields: `device_id`, `category`, `dp_value`, `prev_value`, `event_ts`, `prev_event_ts`, `interval_kwh`, `log_date`
+- Note: `dp_code` column removed — payload now contains only `add_ele` events
 - Materialization: **table**
 
 ### `stg_energy_hourly`
 
 - **Source: `stg_energy_dp_log`** (not `raw_energy_hourly` — statistics-month endpoint unavailable)
-- Filters `dp_code = 'add_ele'` and `interval_kwh > 0` (excludes counter resets)
+- Filters `interval_kwh > 0` (excludes counter resets; no `dp_code` filter needed — all rows are `add_ele`)
 - Buckets `event_ts` via `TIMESTAMP_TRUNC(event_ts, HOUR)` → `stat_hour`
 - Aggregates `SUM(interval_kwh)` per `(device_id, category, stat_hour)`
 - Fields: `device_id`, `category`, `stat_hour`, `energy_kwh`
@@ -216,7 +216,7 @@ dbt/
 ### `stg_energy_daily`
 
 - **Source: `stg_energy_dp_log`** (not `raw_energy_daily` — statistics-month endpoint unavailable)
-- Filters `dp_code = 'add_ele'` and `interval_kwh > 0` (excludes counter resets)
+- Filters `interval_kwh > 0` (excludes counter resets; no `dp_code` filter needed)
 - Extracts `DATE(event_ts)` → `stat_date`
 - Aggregates `SUM(interval_kwh)` per `(device_id, category, stat_date)`
 - Fields: `device_id`, `category`, `stat_date`, `energy_kwh`
@@ -261,7 +261,7 @@ Current: header only (stub). Filled manually when parent-child topology is estab
 
 ### `fct_energy_intervals` (finest granularity)
 
-- Source: `stg_energy_dp_log` WHERE `dp_code = 'add_ele'` AND `interval_kwh IS NOT NULL`, JOIN `dim_devices`
+- Source: `stg_energy_dp_log` WHERE `interval_kwh IS NOT NULL`, JOIN `dim_devices` (all rows are `add_ele`)
 - One row per `add_ele` change event per device
 - Fields:
 
@@ -304,7 +304,7 @@ Current: header only (stub). Filled manually when parent-child topology is estab
 | Model | Tests |
 |-------|-------|
 | All staging | `not_null` on key fields |
-| `stg_energy_dp_log` | `accepted_values` for `dp_code` |
+| `stg_energy_dp_log` | `not_null` on `dp_value`, `event_ts`, `log_date` |
 | `dim_devices` | `unique` + `not_null` on `device_id` |
 | `fct_energy_intervals` | `not_null` on `device_id`, `event_ts`, `interval_kwh`, `is_counter_reset`; composite unique on `(device_id, event_ts)` via `dbt_utils` |
 | `fct_energy_hourly` | `not_null`; composite unique on `(device_id, stat_hour)` via `dbt_utils` |
