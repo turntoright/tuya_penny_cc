@@ -27,3 +27,23 @@ models:
         tests: [not_null]
       - name: is_counter_reset
         tests: [not_null]
+
+  - name: fct_energy_hourly
+    description: "Hourly energy consumption per device, derived from DP event intervals."
+    columns:
+      - name: device_id
+        tests: [not_null]
+      - name: stat_hour
+        tests: [not_null]
+      - name: energy_kwh
+        tests: [not_null]
+
+  - name: fct_energy_daily
+    description: "Daily energy consumption per device, derived from DP event intervals."
+    columns:
+      - name: device_id
+        tests: [not_null]
+      - name: stat_date
+        tests: [not_null]
+      - name: energy_kwh
+        tests: [not_null]
