@@ -47,7 +47,7 @@ def test_default_mode_writes_yesterday():
     )
     next_day = datetime(yesterday.year, yesterday.month, yesterday.day, tzinfo=UTC) + timedelta(days=1)
     end_ms = int(next_day.timestamp() * 1000) - 1
-    fake_tuya.get_dp_log.assert_called_once_with("d1", ["add_ele", "cur_power", "cur_current", "cur_voltage"], start_ms, end_ms)
+    fake_tuya.get_dp_log.assert_called_once_with("d1", ["add_ele"], start_ms, end_ms)
 
 
 def test_single_date_writes_one_row_per_device():

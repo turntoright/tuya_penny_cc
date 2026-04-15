@@ -7,8 +7,7 @@ WITH add_ele AS (
         event_ts,
         interval_kwh
     FROM {{ ref('stg_energy_dp_log') }}
-    WHERE dp_code = 'add_ele'
-      AND interval_kwh > 0   -- exclude counter resets
+    WHERE interval_kwh > 0   -- exclude counter resets
 )
 
 SELECT

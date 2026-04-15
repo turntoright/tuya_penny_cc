@@ -19,8 +19,7 @@ WITH source AS (
         s.interval_kwh < 0                                   AS is_counter_reset
     FROM {{ ref('stg_energy_dp_log') }} s
     LEFT JOIN {{ ref('dim_devices') }} d USING (device_id)
-    WHERE s.dp_code = 'add_ele'
-      AND s.interval_kwh IS NOT NULL
+    WHERE s.interval_kwh IS NOT NULL
 )
 
 SELECT *

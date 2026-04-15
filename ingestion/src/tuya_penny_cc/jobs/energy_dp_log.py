@@ -17,7 +17,7 @@ from tuya_penny_cc.bq.schemas import RAW_ENERGY_DP_LOG_SCHEMA
 from tuya_penny_cc.tuya.client import TuyaClient
 
 TABLE = "raw_energy_dp_log"
-DP_CODES = ["add_ele", "cur_power", "cur_current", "cur_voltage"]
+DP_CODES = ["add_ele"]
 
 
 class _TuyaLike(Protocol):

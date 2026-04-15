@@ -27,15 +27,10 @@ models:
         tests: [not_null]
 
   - name: stg_energy_dp_log
-    description: "Unnested DP log events with add_ele delta (interval_kwh)."
+    description: "Unnested add_ele DP log events with cumulative counter value and interval_kwh delta."
     columns:
       - name: device_id
         tests: [not_null]
-      - name: dp_code
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['add_ele', 'cur_power', 'cur_current', 'cur_voltage']
       - name: dp_value
         tests: [not_null]
       - name: event_ts
