@@ -1,0 +1,46 @@
+name: 'tuya_penny_cc'
+version: '1.0.0'
+config-version: 2
+
+profile: 'tuya_penny_cc'
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+test-paths: ["tests"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  tuya_penny_cc:
+    staging:
+      +schema: tuya_staging
+      +materialized: view
+      stg_energy_dp_log:
+        +materialized: table
+      stg_energy_hourly:
+        +materialized: table
+      stg_energy_daily:
+        +materialized: table
+    marts:
+      +schema: tuya_marts
+      +materialized: table
+      fct_energy_intervals:
+        +materialized: incremental
+        +unique_key: ['device_id', 'event_ts']
+        +on_schema_change: fail
+      fct_energy_hourly:
+        +materialized: incremental
+        +unique_key: ['device_id', 'stat_hour']
+        +on_schema_change: fail
+      fct_energy_daily:
+        +materialized: incremental
+        +unique_key: ['device_id', 'stat_date']
+        +on_schema_change: fail
+
+snapshots:
+  tuya_penny_cc:
+    +target_schema: tuya_staging
