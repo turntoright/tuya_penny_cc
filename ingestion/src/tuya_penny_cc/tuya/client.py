@@ -255,7 +255,6 @@ class TuyaClient:
         """
         if not codes:
             raise ValueError("codes must be a non-empty list")
-        access_token = self._get_access_token()
         path = self.DP_LOG_PATH.format(device_id=quote(device_id, safe=""))
         events: list[dict] = []
         last_row_key: str | None = None
@@ -268,7 +267,7 @@ class TuyaClient:
             }
             if last_row_key:
                 query["last_row_key"] = last_row_key
-            payload = self._fetch_dp_log_page(path, query, access_token)
+            payload = self._fetch_dp_log_page(path, query)
             result = payload.get("result") or {}
             page_events: list[dict] = result.get("logs") or []
             events.extend(page_events)
@@ -281,16 +280,19 @@ class TuyaClient:
         self,
         path: str,
         query: dict[str, str],
-        access_token: str,
     ) -> dict:
-        """Fetch a single DP log page, retrying on rate-limit (40000309)."""
+        """Fetch a single DP log page, retrying on rate-limit (40000309).
+
+        Calls _get_access_token() on every attempt so the token is always
+        fresh even during long paginations that exceed its ~110-min lifetime.
+        """
         for attempt in range(self._DP_LOG_RATE_LIMIT_RETRIES + 1):
             try:
                 return self._signed_request(
                     method="GET",
                     path=path,
                     query=query,
-                    access_token=access_token,
+                    access_token=self._get_access_token(),
                 )
             except httpx.HTTPStatusError as exc:
                 if attempt < self._DP_LOG_RATE_LIMIT_RETRIES:
