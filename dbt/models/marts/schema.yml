@@ -15,3 +15,15 @@ models:
               values: ['znjdq', 'dlq']
       - name: is_online
         tests: [not_null]
+
+  - name: fct_energy_intervals
+    description: "Event-level energy consumption per device. One row per add_ele DP change event."
+    columns:
+      - name: device_id
+        tests: [not_null]
+      - name: event_ts
+        tests: [not_null]
+      - name: interval_kwh
+        tests: [not_null]
+      - name: is_counter_reset
+        tests: [not_null]
