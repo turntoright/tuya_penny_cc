@@ -21,6 +21,19 @@ def test_string_to_sign_sorts_query_alphabetically():
     assert s.endswith("/v1.0/x?a=1&b=2")
 
 
+def test_string_to_sign_does_not_encode_commas_in_query_values():
+    # Tuya verifies signatures against the decoded URL, so comma-separated values
+    # (e.g. codes=add_ele,cur_power) must appear as literal commas, not %2C.
+    s = build_string_to_sign(
+        method="GET",
+        path="/v2.0/cloud/thing/abc/report-logs",
+        query={"codes": "add_ele,cur_power", "size": "10"},
+        body=b"",
+    )
+    assert "codes=add_ele,cur_power" in s
+    assert "%2C" not in s
+
+
 def test_signature_is_uppercase_hex_64_chars():
     sig = compute_signature(
         access_id="id",

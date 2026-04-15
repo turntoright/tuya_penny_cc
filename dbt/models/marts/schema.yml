@@ -1,0 +1,58 @@
+version: 2
+
+models:
+  - name: dim_devices
+    description: "Current state device dimension. parent_device_id is null until topology is established."
+    columns:
+      - name: device_id
+        tests: [not_null, unique]
+      - name: name
+        tests: [not_null]
+      - name: category
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['znjdq', 'dlq']
+      - name: is_online
+        tests: [not_null]
+
+  - name: fct_energy_intervals
+    description: "Event-level energy consumption per device. One row per add_ele DP change event."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [device_id, event_ts]
+    columns:
+      - name: device_id
+        tests: [not_null]
+      - name: event_ts
+        tests: [not_null]
+      - name: interval_kwh
+        tests: [not_null]
+      - name: is_counter_reset
+        tests: [not_null]
+
+  - name: fct_energy_hourly
+    description: "Hourly energy consumption per device, derived from DP event intervals."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [device_id, stat_hour]
+    columns:
+      - name: device_id
+        tests: [not_null]
+      - name: stat_hour
+        tests: [not_null]
+      - name: energy_kwh
+        tests: [not_null]
+
+  - name: fct_energy_daily
+    description: "Daily energy consumption per device, derived from DP event intervals."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [device_id, stat_date]
+    columns:
+      - name: device_id
+        tests: [not_null]
+      - name: stat_date
+        tests: [not_null]
+      - name: energy_kwh
+        tests: [not_null]

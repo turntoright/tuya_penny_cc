@@ -227,6 +227,53 @@ class TuyaClient:
         )
         return payload.get("result") or []
 
+    # ---- device DP log ----------------------------------------------------------
+
+    DP_LOG_PATH = "/v2.0/cloud/thing/{device_id}/report-logs"
+    # Note: path is best-guess based on Tuya v2 API conventions.
+    # Confirm and adjust during smoke test if the endpoint differs.
+
+    def get_dp_log(
+        self,
+        device_id: str,
+        codes: list[str],
+        start_ts_ms: int,
+        end_ts_ms: int,
+    ) -> list[dict]:
+        """Return historical DP change records for a single device.
+
+        Paginates using last_row_key cursor until all records are fetched.
+        Returns a flat list of {code, value, event_time} dicts.
+        """
+        if not codes:
+            raise ValueError("codes must be a non-empty list")
+        access_token = self._get_access_token()
+        path = self.DP_LOG_PATH.format(device_id=quote(device_id, safe=""))
+        events: list[dict] = []
+        last_row_key: str | None = None
+        while True:
+            query: dict[str, str] = {
+                "codes": ",".join(codes),
+                "start_time": str(start_ts_ms),
+                "end_time": str(end_ts_ms),
+                "size": "50",
+            }
+            if last_row_key:
+                query["last_row_key"] = last_row_key
+            payload = self._signed_request(
+                method="GET",
+                path=path,
+                query=query,
+                access_token=access_token,
+            )
+            result = payload.get("result") or {}
+            page_events: list[dict] = result.get("logs") or []
+            events.extend(page_events)
+            last_row_key = result.get("last_row_key")  # None or "" both mean no more pages
+            if not last_row_key:
+                break
+        return events
+
     # ---- lifecycle -------------------------------------------------------
 
     def close(self) -> None:

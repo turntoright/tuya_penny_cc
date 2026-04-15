@@ -13,7 +13,13 @@ from google.cloud import bigquery
 
 from tuya_penny_cc.bq.writer import BigQueryWriter
 from tuya_penny_cc.config import Settings
-from tuya_penny_cc.jobs import device_sync, energy_daily, energy_hourly, energy_realtime
+from tuya_penny_cc.jobs import (
+    device_sync,
+    energy_daily,
+    energy_dp_log,
+    energy_hourly,
+    energy_realtime,
+)
 from tuya_penny_cc.tuya.client import TuyaClient
 
 logger = logging.getLogger("tuya_penny_cc")
@@ -24,6 +30,7 @@ class Task(StrEnum):
     energy_realtime = "energy_realtime"
     energy_hourly = "energy_hourly"
     energy_daily = "energy_daily"
+    energy_dp_log = "energy_dp_log"
 
 
 def app() -> None:
@@ -84,6 +91,11 @@ def _main(
                 )
             case Task.energy_daily:
                 written = energy_daily.run(
+                    tuya=tuya, writer=writer, run_id=run_id,
+                    date=parsed_date, start_date=parsed_start, end_date=parsed_end,
+                )
+            case Task.energy_dp_log:
+                written = energy_dp_log.run(
                     tuya=tuya, writer=writer, run_id=run_id,
                     date=parsed_date, start_date=parsed_start, end_date=parsed_end,
                 )

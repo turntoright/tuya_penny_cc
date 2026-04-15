@@ -1,0 +1,11 @@
+tuya_penny_cc:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: tuya_staging
+      location: "{{ env_var('BQ_LOCATION', 'australia-southeast1') }}"
+      threads: 4
+      timeout_seconds: 300

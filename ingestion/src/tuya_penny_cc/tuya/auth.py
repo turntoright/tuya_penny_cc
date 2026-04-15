@@ -30,7 +30,10 @@ def build_string_to_sign(
     body_sha = hashlib.sha256(body).hexdigest()
     if query:
         sorted_pairs = sorted(query.items())
-        query_str = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in sorted_pairs)
+        # Commas must not be percent-encoded; Tuya's server verifies signatures
+        # against the decoded URL, so comma-separated values (e.g. codes=a,b)
+        # must appear as literal commas in the canonical string.
+        query_str = "&".join(f"{k}={quote(str(v), safe=',')}" for k, v in sorted_pairs)
         url = f"{path}?{query_str}"
     else:
         url = path

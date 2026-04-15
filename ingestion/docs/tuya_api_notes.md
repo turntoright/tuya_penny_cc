@@ -112,7 +112,7 @@ SELECT
 FROM `<project>.<dataset>.raw_devices`
 ```
 
-## 4. Energy statistics endpoint (best-guess — needs smoke test)
+## 4. Energy statistics endpoint — NOT AVAILABLE on this account (2026-04-15)
 
 Endpoint used by `energy_hourly` and `energy_daily` jobs:
 
@@ -120,20 +120,16 @@ Endpoint used by `energy_hourly` and `energy_daily` jobs:
 GET /v1.0/iot-03/devices/{device_id}/statistics-month
 ```
 
-Query parameters sent:
+**Status: returns `code=1108 msg=uri path invalid` — this endpoint is not subscribed / not available.**
 
-| Param | Value |
-|---|---|
-| `type` | `"hour"` or `"day"` |
-| `start_time` | Window start as Unix milliseconds (inclusive) |
-| `end_time` | Window end as Unix milliseconds (exclusive upper bound − 1) |
+All v1 and v2 variants tested return 1108:
+- `/v1.0/iot-03/devices/{id}/statistics-month`
+- `/v2.0/cloud/thing/{id}/statistics-month`
+- `/v2.0/cloud/thing/{id}/statistics`
+- `/v1.0/iot-03/devices/{id}/statistics`
+- `/v1.0/iot-03/devices/{id}/electricity-flow`
 
-**Status:** This path and parameter names are inferred from Tuya OpenAPI conventions. They have **not yet been confirmed against a live response**. On first smoke test, verify:
-- The path returns `success: true` (not `28841106 No permissions`)
-- The `result` field structure (list of dicts? what keys?)
-- Whether `type`, `start_time`, `end_time` are the correct param names
-
-Update this section after the first successful smoke run.
+**Impact on Plan C dbt models:** `raw_energy_hourly` and `raw_energy_daily` tables will remain empty. The dbt models `fct_energy_hourly` and `fct_energy_daily` should be derived from `stg_energy_dp_log` (window-bucketing `event_ts`) rather than from these broken raw tables. This is the better design — single source of truth from fine-grained DP events.
 
 ### `end_ms` formula
 
@@ -150,9 +146,60 @@ end_ms = int(next_day.timestamp() * 1000) - 1
 
 Do **not** use `23:59:59` literals — that misses the last 999 ms of the day.
 
+## 5. DP history log endpoint — confirmed working (2026-04-15)
+
+```
+GET /v2.0/cloud/thing/{device_id}/report-logs
+```
+
+Confirmed working. Response structure:
+
+```jsonc
+{
+  "result": {
+    "device_id": "eb70c9300287cd64acktuh",
+    "has_more": true,
+    "last_row_key": "E134...",   // cursor for next page; absent or "" when no more pages
+    "logs": [
+      {"code": "add_ele", "event_time": 1776210807000, "value": "91"},
+      {"code": "cur_current", "event_time": 1776207992390, "value": "462"},
+      {"code": "cur_power", "event_time": 1776207992390, "value": "825"}
+    ],
+    "total": 1000
+  },
+  "success": true
+}
+```
+
+Key findings:
+- `event_time` is **Unix milliseconds** ✅
+- `value` is a **string**, not int — cast required in dbt
+- `total` is the total event count across all pages (informational only)
+- When no events exist for a device/window, `result` is `{"has_more": false}` (no `logs` key)
+- `size` max confirmed: 50 works fine; larger values untested
+
+### Multi-code signing bug (fixed 2026-04-15)
+
+Calling with multiple codes (e.g. `codes=add_ele,cur_power,cur_current,cur_voltage`) returned
+`code=1004 msg=sign invalid` before the fix. Root cause: `auth.py` was percent-encoding commas
+as `%2C` in the canonical query string, but Tuya's server verifies signatures against the decoded
+URL (literal commas). Fix: use `safe=','` in `urllib.parse.quote()` when building the signing string.
+
+### Rate limiting
+
+Tuya rate-limits the DP log endpoint per device. Error: `code=40000309 msg=The log query is too
+frequent, please try again later!` Seen when making many requests during testing. Normal daily
+runs are unaffected; add a delay between devices in high-frequency backfill scenarios if needed.
+
+### `add_ele` value behaviour
+
+`add_ele` reports a cumulative counter in units of **0.01 kWh** that resets periodically. Observed
+range 0-99 within a single day. The counter likely resets to 0 at some threshold (~100). The dbt
+LAG model must handle negative deltas (counter reset) — flag them rather than silently dropping.
+
 ---
 
-## 5. Devices in this project (snapshot 2026-04-14)
+## 6. Devices in this project (snapshot 2026-04-14)
 
 | Category code | Product | Count | Online |
 |---|---|---|---|

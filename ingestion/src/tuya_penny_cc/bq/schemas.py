@@ -49,3 +49,14 @@ RAW_ENERGY_DAILY_SCHEMA: list[bigquery.SchemaField] = [
     bigquery.SchemaField("source_endpoint", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("payload", "JSON", mode="REQUIRED"),
 ]
+
+RAW_ENERGY_DP_LOG_SCHEMA: list[bigquery.SchemaField] = [
+    bigquery.SchemaField("device_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("category", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("log_date", "DATE", mode="REQUIRED"),
+    bigquery.SchemaField("ingest_ts", "TIMESTAMP", mode="REQUIRED"),
+    bigquery.SchemaField("ingest_run_id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("ingest_date", "DATE", mode="REQUIRED"),
+    bigquery.SchemaField("source_endpoint", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("payload", "JSON", mode="REQUIRED"),
+]
