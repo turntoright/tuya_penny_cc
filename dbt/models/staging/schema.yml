@@ -42,3 +42,27 @@ models:
         tests: [not_null]
       - name: log_date
         tests: [not_null]
+
+  - name: stg_energy_hourly
+    description: "Hourly energy aggregation derived from DP event log (add_ele intervals)."
+    columns:
+      - name: device_id
+        tests: [not_null]
+      - name: category
+        tests: [not_null]
+      - name: stat_hour
+        tests: [not_null]
+      - name: energy_kwh
+        tests: [not_null]
+
+  - name: stg_energy_daily
+    description: "Daily energy aggregation derived from DP event log (add_ele intervals)."
+    columns:
+      - name: device_id
+        tests: [not_null]
+      - name: category
+        tests: [not_null]
+      - name: stat_date
+        tests: [not_null]
+      - name: energy_kwh
+        tests: [not_null]
