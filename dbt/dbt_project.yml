@@ -41,6 +41,16 @@ models:
         +unique_key: ['device_id', 'stat_date']
         +on_schema_change: fail
 
+seeds:
+  tuya_penny_cc:
+    device_relationships:
+      +column_types:
+        parent_device_id: string
+        child_device_id: string
+        relationship_type: string
+        valid_from: string
+        note: string
+
 snapshots:
   tuya_penny_cc:
     +target_schema: tuya_staging

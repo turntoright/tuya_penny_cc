@@ -12,7 +12,8 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ['znjdq', 'dlq']
+              arguments:
+                values: ['znjdq', 'dlq']
       - name: is_online
         tests: [not_null]
 
@@ -20,7 +21,8 @@ models:
     description: "Event-level energy consumption per device. One row per add_ele DP change event."
     tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [device_id, event_ts]
+          arguments:
+            combination_of_columns: [device_id, event_ts]
     columns:
       - name: device_id
         tests: [not_null]
@@ -35,7 +37,8 @@ models:
     description: "Hourly energy consumption per device, derived from DP event intervals."
     tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [device_id, stat_hour]
+          arguments:
+            combination_of_columns: [device_id, stat_hour]
     columns:
       - name: device_id
         tests: [not_null]
@@ -48,7 +51,8 @@ models:
     description: "Daily energy consumption per device, derived from DP event intervals."
     tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [device_id, stat_date]
+          arguments:
+            combination_of_columns: [device_id, stat_date]
     columns:
       - name: device_id
         tests: [not_null]

@@ -22,7 +22,8 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ['znjdq', 'dlq']
+              arguments:
+                values: ['znjdq', 'dlq']
       - name: is_online
         tests: [not_null]
 
